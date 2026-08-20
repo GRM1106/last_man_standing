@@ -1,0 +1,11 @@
+@media (min-width: 1000px) {
+  .dashboard-pots {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+}
+
+.pot-count-label {
+  color: #b8ff34;
+  font: inherit;
+}
