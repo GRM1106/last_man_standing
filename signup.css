@@ -15,3 +15,6 @@ small { color: #747d73; font-size: .67rem; font-weight: 400; }
 .mode-button { display: block; margin: 18px auto 0; border: 0; padding: 4px; color: #aeb6ac; background: transparent; font: inherit; font-size: .76rem; text-decoration: underline; cursor: pointer; }
 .mode-button:hover { color: #b8ff34; }
 @media (max-width: 760px) { .hero { grid-template-columns: 1fr; } .name-fields { grid-template-columns: 1fr; } }
+[hidden] {
+  display: none !important;
+}
