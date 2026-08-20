@@ -13,7 +13,7 @@
     <form id="pot-form" class="pot-form" hidden>
       <div class="pot-form-heading"><div><p class="label">NEW POT</p><h2>Set up the tournament</h2></div><button id="cancel-pot" class="text-button" type="button">Cancel</button></div>
       <div class="pot-fields"><label>Pot name<input name="potName" placeholder="e.g. Pot 1 — Autumn" maxlength="80" required></label><label>Season<input name="season" value="2026/27" maxlength="20" required></label><label>Entry fee (£)<input name="entryFee" type="number" value="10" min="0" step="0.01" required></label><label>Buy-back fee (£)<input name="buyBackFee" type="number" value="10" min="0" step="0.01" required></label></div>
-      <fieldset><legend>1. Select included gameweeks</legend><p class="field-help">Choose every FPL gameweek that belongs to this pot.</p><div id="gameweek-grid" class="gameweek-grid"></div></fieldset>
+      <fieldset><legend>1. Select the starting gameweek</legend><p class="field-help">We’ll include every gameweek from this one through GW38. The pot ends when someone wins or you mark it complete.</p><div id="gameweek-grid" class="gameweek-grid"></div></fieldset>
       <fieldset><legend>2. Assign approved players</legend><p class="field-help">Only approved players can be added. You can include your dummy account for testing.</p><div id="pot-player-options" class="pot-player-options"></div></fieldset>
       <button class="primary-button create-pot-button" type="submit">Create draft pot</button>
     </form>
