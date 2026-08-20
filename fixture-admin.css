@@ -1,0 +1,10 @@
+.sync-detail{margin:0 0 22px;color:#899187;font-size:.8rem}
+.fixture-list{display:grid;border-top:1px solid #3d453c}
+.fixture-row{display:grid;grid-template-columns:90px 1fr auto 1fr 110px;align-items:center;gap:18px;padding:17px 0;border-bottom:1px solid #30372f}
+.fixture-gameweek,.fixture-time{color:#8f988d;font-size:.75rem;font-weight:800;text-transform:uppercase}
+.fixture-team{display:flex;align-items:center;gap:10px;font-weight:800}
+.fixture-team.away{justify-content:flex-end;text-align:right}
+.fixture-team img{width:30px;height:30px;object-fit:contain}
+.fixture-score{min-width:64px;color:#b8ff34;font-size:1.05rem;font-weight:900;text-align:center}
+.fixture-empty{padding:50px 0;color:#8d968b;text-align:center}
+@media(max-width:700px){.fixture-row{grid-template-columns:62px 1fr auto 1fr;gap:8px}.fixture-time{grid-column:1/-1}.fixture-team{font-size:.78rem}.fixture-team img{width:24px;height:24px}}
