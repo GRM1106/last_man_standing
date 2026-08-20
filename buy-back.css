@@ -5,3 +5,9 @@
 .pot-member-controls { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
 .pot-member-controls button { white-space:nowrap; }
 @media (max-width:700px) { .buy-back-panel { align-items:flex-start; flex-direction:column; } }
+.pot-management { display:flex; align-items:center; gap:9px; margin-top:18px; border-top:1px solid #343b34; padding-top:18px; flex-wrap:wrap; }
+.pot-management select { min-width:260px; flex:1; border:1px solid #465045; padding:10px; color:#f3f6ef; background:#111511; font:inherit; font-size:.76rem; }
+.pot-danger-button { border:1px solid #794542; padding:9px 11px; color:#e39a94; background:transparent; font:inherit; font-size:.7rem; font-weight:800; cursor:pointer; }
+.pot-danger-button[data-armed="true"] { color:#fff; background:#9e2f29; }
+.delete-pot-button { margin-left:auto; }
+@media (max-width:700px) { .pot-management select,.pot-management button { width:100%; } .delete-pot-button { margin-left:0; } }
