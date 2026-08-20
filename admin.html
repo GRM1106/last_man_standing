@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Last Man Standing player administration."><title>Last Man Standing — Players</title><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="signup.css"><link rel="stylesheet" href="admin.css"><link rel="stylesheet" href="fixture-admin.css"><link rel="stylesheet" href="admin-picks.css"><link rel="stylesheet" href="test-mode.css"><link rel="stylesheet" href="gameweek-processing.css"><link rel="stylesheet" href="buy-back.css"></head>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Last Man Standing player administration."><title>Last Man Standing — Players</title><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="signup.css"><link rel="stylesheet" href="admin.css"><link rel="stylesheet" href="fixture-admin.css"><link rel="stylesheet" href="admin-picks.css"><link rel="stylesheet" href="test-mode.css"><link rel="stylesheet" href="gameweek-processing.css"><link rel="stylesheet" href="buy-back.css"><link rel="stylesheet" href="standings.css"></head>
 <body><main class="shell"><nav><a class="brand" href="/waiting.html"><b>LMS</b><span>Last Man Standing</span></a><div class="admin-nav"><span class="season">Admin</span><button id="sign-out" class="nav-button" type="button">Sign out</button></div></nav>
 <section id="admin-loading" class="admin-state"><p class="label">ADMINISTRATION</p><h1>Loading players…</h1></section>
 <section id="admin-denied" class="admin-state" hidden><p class="label">ACCESS DENIED</p><h1>Admin access<br><em>required.</em></h1><p class="intro">This page is only available to the tournament organiser.</p><a class="back-link" href="/waiting.html">Return to your account</a></section>
 <section id="admin-content" class="admin-panel" hidden>
   <header class="admin-heading"><div><p class="label">TOURNAMENT ADMIN</p><h1 id="admin-title">Players</h1></div><div class="player-count"><strong id="player-count">0</strong><span id="count-label">registered</span></div></header>
-  <div class="admin-tabs" role="tablist"><button class="admin-tab active" data-view="players" type="button">Players</button><button class="admin-tab" data-view="pots" type="button">Pots</button><button class="admin-tab" data-view="picks" type="button">Picks</button><button class="admin-tab" data-view="fixtures" type="button">Fixtures</button></div>
+  <div class="admin-tabs" role="tablist"><button class="admin-tab active" data-view="players" type="button">Players</button><button class="admin-tab" data-view="pots" type="button">Pots</button><button class="admin-tab" data-view="standings" type="button">Standings</button><button class="admin-tab" data-view="picks" type="button">Picks</button><button class="admin-tab" data-view="fixtures" type="button">Fixtures</button></div>
   <p id="admin-message" class="admin-message" role="status"></p>
   <div id="players-view"><div id="player-list" class="player-list"></div></div>
   <div id="pots-view" hidden>
@@ -23,6 +23,12 @@
     <div class="pot-toolbar"><div><p class="label">FANTASY PREMIER LEAGUE</p><h2>Football data</h2><p class="field-help">Import clubs, emblems, gameweeks, kickoff times and results from the free FPL feed.</p></div><button id="sync-fpl" class="primary-button" type="button">Sync FPL data</button></div>
     <p id="fixture-sync-detail" class="sync-detail">Run 09 — FPL clubs and fixture import in Supabase before syncing for the first time.</p>
     <div id="fixture-list" class="fixture-list"></div>
+  </div>
+  <div id="standings-view" hidden>
+    <div class="standings-toolbar"><div><p class="label">POT PROGRESS</p><h2>Standings board</h2><p class="field-help">Each player’s selections and results across every round.</p></div><label>Pot<select id="standings-pot"></select></label></div>
+    <div class="standings-legend"><span><i class="won"></i>Win</span><span><i class="lost"></i>Eliminated</span><span><i class="postponed"></i>Postponed</span><span><i class="pending"></i>Pending</span><span><b>R</b>Random pick</span><span><b>A</b>Admin pick</span></div>
+    <div id="standings-summary" class="pick-summary"></div>
+    <div id="standings-board" class="standings-board"></div>
   </div>
   <div id="picks-view" hidden>
     <div class="pick-overview-toolbar">
