@@ -1,4 +1,5 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "@supabase/supabase-js";
+import { renderMetric } from "./ui.js";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
 
 const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
@@ -21,9 +22,7 @@ function renderPreview(data){
   title.textContent=`${data.pot_name} · GW${data.gameweek_number}`;
   summary.replaceChildren();
   [["Survive",data.winners+data.postponed],["Eliminated",data.losers],["Players",data.player_count]].forEach(([label,value])=>{
-    const item=document.createElement("div");
-    item.innerHTML=`<span>${label}</span><strong>${value}</strong>`;
-    summary.append(item);
+    renderMetric(summary,label,value);
   });
   warning.className=`processing-warning${data.ready?" ready":""}`;
   warning.textContent=data.ready
