@@ -1,4 +1,6 @@
 -- Run once in the Supabase SQL Editor after setup.sql.
+grant select on table public.profiles to authenticated;
+
 create or replace function public.is_current_user_admin()
 returns boolean language sql stable security definer set search_path = '' as $$
   select coalesce((select p.is_admin from public.profiles p where p.id = (select auth.uid())), false);
