@@ -17,3 +17,4 @@
 .payment-save-button { border:1px solid #b8ff34; color:#101410; background:#b8ff34; }
 .payment-cancel-button { border:1px solid #566054; color:#c1c8bf; background:transparent; }
 @media (max-width:700px) { .payment-confirmation { align-items:stretch; flex-direction:column; } .payment-confirmation button { width:100%; } }
+.processing-actions .random-confirm { border-color:#e6ba69; color:#101410; background:#e6ba69; }
