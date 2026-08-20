@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Last Man Standing player administration."><title>Last Man Standing — Players</title><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="signup.css"><link rel="stylesheet" href="admin.css"><link rel="stylesheet" href="fixture-admin.css"><link rel="stylesheet" href="admin-picks.css"><link rel="stylesheet" href="test-mode.css"><link rel="stylesheet" href="gameweek-processing.css"><link rel="stylesheet" href="buy-back.css"><link rel="stylesheet" href="standings.css"></head>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Last Man Standing player administration."><title>Last Man Standing — Players</title><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="signup.css"><link rel="stylesheet" href="admin.css"><link rel="stylesheet" href="fixture-admin.css"><link rel="stylesheet" href="admin-picks.css"><link rel="stylesheet" href="test-mode.css"><link rel="stylesheet" href="gameweek-processing.css"><link rel="stylesheet" href="buy-back.css"><link rel="stylesheet" href="standings.css"><link rel="stylesheet" href="deadlines.css"></head>
 <body><main class="shell"><nav><a class="brand" href="/waiting.html"><b>LMS</b><span>Last Man Standing</span></a><div class="admin-nav"><span class="season">Admin</span><button id="sign-out" class="nav-button" type="button">Sign out</button></div></nav>
 <section id="admin-loading" class="admin-state"><p class="label">ADMINISTRATION</p><h1>Loading players…</h1></section>
 <section id="admin-denied" class="admin-state" hidden><p class="label">ACCESS DENIED</p><h1>Admin access<br><em>required.</em></h1><p class="intro">This page is only available to the tournament organiser.</p><a class="back-link" href="/waiting.html">Return to your account</a></section>
@@ -36,6 +36,7 @@
       <div class="pick-overview-filters"><label>Pot<select id="pick-pot"></select></label><label>Gameweek<select id="pick-gameweek"></select></label><button id="test-mode-toggle" class="test-mode-toggle" type="button">Enable test mode</button></div>
     </div>
     <p id="test-mode-note" class="test-mode-note" hidden>Test mode is on. Simulated results only affect this draft pot and never overwrite FPL scores.</p>
+    <div id="pick-deadline" class="pick-deadline" hidden></div>
     <div id="pick-summary" class="pick-summary"></div>
     <div class="processing-actions"><button id="assign-random-picks" class="nav-button" type="button">Assign missing picks</button><button id="review-processing" class="primary-button" type="button">Review gameweek results</button><button id="reset-test-processing" class="text-button" type="button" hidden>Reset this test gameweek</button></div>
     <div id="admin-pick-list" class="admin-pick-list"></div>
