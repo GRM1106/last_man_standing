@@ -3,5 +3,21 @@
 <body><main class="shell"><nav><a class="brand" href="/waiting.html"><b>LMS</b><span>Last Man Standing</span></a><div class="admin-nav"><span class="season">Admin</span><button id="sign-out" class="nav-button" type="button">Sign out</button></div></nav>
 <section id="admin-loading" class="admin-state"><p class="label">ADMINISTRATION</p><h1>Loading players…</h1></section>
 <section id="admin-denied" class="admin-state" hidden><p class="label">ACCESS DENIED</p><h1>Admin access<br><em>required.</em></h1><p class="intro">This page is only available to the tournament organiser.</p><a class="back-link" href="/waiting.html">Return to your account</a></section>
-<section id="admin-content" class="admin-panel" hidden><header class="admin-heading"><div><p class="label">TOURNAMENT ADMIN</p><h1>Players</h1></div><div class="player-count"><strong id="player-count">0</strong><span>registered</span></div></header><p id="admin-message" class="admin-message" role="status"></p><div id="player-list" class="player-list"></div></section>
+<section id="admin-content" class="admin-panel" hidden>
+  <header class="admin-heading"><div><p class="label">TOURNAMENT ADMIN</p><h1 id="admin-title">Players</h1></div><div class="player-count"><strong id="player-count">0</strong><span id="count-label">registered</span></div></header>
+  <div class="admin-tabs" role="tablist"><button class="admin-tab active" data-view="players" type="button">Players</button><button class="admin-tab" data-view="pots" type="button">Pots</button></div>
+  <p id="admin-message" class="admin-message" role="status"></p>
+  <div id="players-view"><div id="player-list" class="player-list"></div></div>
+  <div id="pots-view" hidden>
+    <div class="pot-toolbar"><div><p class="label">TOURNAMENT CYCLES</p><h2>Your pots</h2></div><button id="show-pot-form" class="primary-button" type="button">Create a pot</button></div>
+    <form id="pot-form" class="pot-form" hidden>
+      <div class="pot-form-heading"><div><p class="label">NEW POT</p><h2>Set up the tournament</h2></div><button id="cancel-pot" class="text-button" type="button">Cancel</button></div>
+      <div class="pot-fields"><label>Pot name<input name="potName" placeholder="e.g. Pot 1 — Autumn" maxlength="80" required></label><label>Season<input name="season" value="2026/27" maxlength="20" required></label><label>Entry fee (£)<input name="entryFee" type="number" value="10" min="0" step="0.01" required></label><label>Buy-back fee (£)<input name="buyBackFee" type="number" value="10" min="0" step="0.01" required></label></div>
+      <fieldset><legend>1. Select included gameweeks</legend><p class="field-help">Choose every FPL gameweek that belongs to this pot.</p><div id="gameweek-grid" class="gameweek-grid"></div></fieldset>
+      <fieldset><legend>2. Assign approved players</legend><p class="field-help">Only approved players can be added. You can include your dummy account for testing.</p><div id="pot-player-options" class="pot-player-options"></div></fieldset>
+      <button class="primary-button create-pot-button" type="submit">Create draft pot</button>
+    </form>
+    <div id="pot-list" class="pot-list"></div>
+  </div>
+</section>
 </main><script type="module" src="admin.js"></script></body></html>
