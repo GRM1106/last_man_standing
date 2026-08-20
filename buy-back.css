@@ -18,3 +18,20 @@
 .payment-cancel-button { border:1px solid #566054; color:#c1c8bf; background:transparent; }
 @media (max-width:700px) { .payment-confirmation { align-items:stretch; flex-direction:column; } .payment-confirmation button { width:100%; } }
 .processing-actions .random-confirm { border-color:#e6ba69; color:#101410; background:#e6ba69; }
+.tournament-controls { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin:-8px 0 20px; border-bottom:1px solid #343b34; padding-bottom:16px; }
+.tournament-controls>strong { margin-right:auto; color:#899187; font-size:.7rem; text-transform:uppercase; letter-spacing:.08em; }
+.tournament-controls select { border:1px solid #465045; padding:9px; color:#f3f6ef; background:#111511; font:inherit; font-size:.76rem; }
+.winner-button { border:1px solid #b8ff34; padding:9px 11px; color:#101410; background:#b8ff34; font:inherit; font-size:.7rem; font-weight:850; cursor:pointer; }
+.winner-button[data-armed="true"] { border-color:#e6ba69; background:#e6ba69; }
+@media (max-width:700px) { .tournament-controls { align-items:stretch; flex-direction:column; } .tournament-controls>strong { margin-right:0; } }
+.pick-history { margin-top:24px; border-top:1px solid #3d453c; padding-top:22px; }
+.pick-history h3 { margin:0 0 14px; font-size:.82rem; text-transform:uppercase; letter-spacing:.08em; }
+.pick-history-list { display:grid; gap:1px; background:#343b34; }
+.pick-history-row { display:grid; grid-template-columns:48px 34px 1fr auto; align-items:center; gap:12px; padding:12px 14px; background:#121712; }
+.pick-history-row>img { width:30px; height:30px; object-fit:contain; }
+.pick-history-row span { display:flex; flex-direction:column; gap:4px; }
+.pick-history-row small { color:#7f887e; }
+.history-outcome { border:1px solid #566054; padding:6px 8px; font-size:.65rem; font-style:normal; font-weight:850; text-transform:uppercase; }
+.history-outcome.won,.history-outcome.postponed { border-color:#6b8c38; color:#b8ff34; }
+.history-outcome.lost { border-color:#7d3732; color:#ff9389; }
+@media (max-width:600px) { .pick-history-row { grid-template-columns:40px 30px 1fr; } .history-outcome { grid-column:2/4; justify-self:start; } }
