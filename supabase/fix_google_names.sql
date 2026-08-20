@@ -8,8 +8,16 @@ begin
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data ->> 'full_name',new.raw_user_meta_data ->> 'name',new.email),
-    coalesce(new.raw_user_meta_data ->> 'first_name',new.raw_user_meta_data ->> 'given_name'),
-    coalesce(new.raw_user_meta_data ->> 'last_name',new.raw_user_meta_data ->> 'family_name'),
+    coalesce(
+      new.raw_user_meta_data ->> 'first_name',
+      new.raw_user_meta_data ->> 'given_name',
+      split_part(coalesce(new.raw_user_meta_data ->> 'full_name',new.raw_user_meta_data ->> 'name'), ' ', 1)
+    ),
+    coalesce(
+      new.raw_user_meta_data ->> 'last_name',
+      new.raw_user_meta_data ->> 'family_name',
+      nullif(regexp_replace(coalesce(new.raw_user_meta_data ->> 'full_name',new.raw_user_meta_data ->> 'name'), '^\S+\s*', ''), '')
+    ),
     new.raw_user_meta_data ->> 'phone'
   );
   return new;
@@ -19,8 +27,18 @@ $$;
 update public.profiles as profile
 set
   display_name = coalesce(profile.display_name,user_account.raw_user_meta_data ->> 'full_name',user_account.raw_user_meta_data ->> 'name',profile.email),
-  first_name = coalesce(profile.first_name,user_account.raw_user_meta_data ->> 'first_name',user_account.raw_user_meta_data ->> 'given_name'),
-  last_name = coalesce(profile.last_name,user_account.raw_user_meta_data ->> 'last_name',user_account.raw_user_meta_data ->> 'family_name')
+  first_name = coalesce(
+    profile.first_name,
+    user_account.raw_user_meta_data ->> 'first_name',
+    user_account.raw_user_meta_data ->> 'given_name',
+    split_part(coalesce(user_account.raw_user_meta_data ->> 'full_name',user_account.raw_user_meta_data ->> 'name'), ' ', 1)
+  ),
+  last_name = coalesce(
+    profile.last_name,
+    user_account.raw_user_meta_data ->> 'last_name',
+    user_account.raw_user_meta_data ->> 'family_name',
+    nullif(regexp_replace(coalesce(user_account.raw_user_meta_data ->> 'full_name',user_account.raw_user_meta_data ->> 'name'), '^\S+\s*', ''), '')
+  )
 from auth.users as user_account
 where profile.id = user_account.id
   and (profile.first_name is null or profile.last_name is null);

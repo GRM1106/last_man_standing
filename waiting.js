@@ -5,6 +5,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 const greeting = document.querySelector("#player-greeting");
 const signOutButton = document.querySelector("#sign-out");
 const brandLink = document.querySelector("#waiting-brand");
+const adminLink = document.querySelector("#admin-link");
 
 function showPersonalGreeting(firstName,storageKey){
   if(!firstName)return;
@@ -20,8 +21,12 @@ async function initialise(){
   let firstName=user?.user_metadata?.first_name||user?.user_metadata?.full_name?.split(" ")[0];
   showPersonalGreeting(firstName||localStorage.getItem(firstNameStorageKey),firstNameStorageKey);
   if(!firstName){
-    const {data:profile}=await supabase.from("profiles").select("first_name").eq("id",user.id).maybeSingle();
+    const {data:profile}=await supabase.from("profiles").select("first_name,is_admin").eq("id",user.id).maybeSingle();
     firstName=profile?.first_name;
+    adminLink.hidden=!profile?.is_admin;
+  }else{
+    const {data:profile}=await supabase.from("profiles").select("is_admin").eq("id",user.id).maybeSingle();
+    adminLink.hidden=!profile?.is_admin;
   }
   showPersonalGreeting(firstName,firstNameStorageKey);
 }

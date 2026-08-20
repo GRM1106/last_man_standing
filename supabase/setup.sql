@@ -25,8 +25,16 @@ begin
     new.id,
     new.email,
     coalesce(new.raw_user_meta_data ->> 'full_name',new.raw_user_meta_data ->> 'name',new.email),
-    coalesce(new.raw_user_meta_data ->> 'first_name',new.raw_user_meta_data ->> 'given_name'),
-    coalesce(new.raw_user_meta_data ->> 'last_name',new.raw_user_meta_data ->> 'family_name'),
+    coalesce(
+      new.raw_user_meta_data ->> 'first_name',
+      new.raw_user_meta_data ->> 'given_name',
+      split_part(coalesce(new.raw_user_meta_data ->> 'full_name',new.raw_user_meta_data ->> 'name'), ' ', 1)
+    ),
+    coalesce(
+      new.raw_user_meta_data ->> 'last_name',
+      new.raw_user_meta_data ->> 'family_name',
+      nullif(regexp_replace(coalesce(new.raw_user_meta_data ->> 'full_name',new.raw_user_meta_data ->> 'name'), '^\S+\s*', ''), '')
+    ),
     new.raw_user_meta_data ->> 'phone'
   );
   return new;
