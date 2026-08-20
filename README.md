@@ -1,6 +1,15 @@
 # Last Man Standing
 
-A lightweight starter page for a private Last Man Standing football tournament.
+A registration page for a private Last Man Standing football tournament.
+
+## Supabase setup
+
+1. Run `supabase/setup.sql` in the Supabase SQL Editor.
+2. Enable Google under **Authentication → Sign In / Providers**.
+3. Add the production Vercel URL to the Supabase redirect URLs.
+4. Add the project URL and publishable key to `config.js`.
+
+Never add the database password or service-role key to this repository.
 
 ## Deploy to Vercel
 

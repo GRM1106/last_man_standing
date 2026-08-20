@@ -1,78 +1,40 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta
-      name="description"
-      content="Last Man Standing — make your weekly pick and follow the competition."
-    />
-    <title>Last Man Standing</title>
-    <link rel="stylesheet" href="styles.css" />
-  </head>
-  <body>
-    <main class="page-shell">
-      <nav aria-label="Main navigation">
-        <a class="brand" href="/" aria-label="Last Man Standing home">
-          <span class="brand-mark">LMS</span>
-          <span>Last Man Standing</span>
-        </a>
-        <span class="season">2026/27 Season</span>
-      </nav>
-
-      <section class="hero">
-        <div class="hero-copy">
-          <p class="eyebrow">THE WEEKLY FOOTBALL CHALLENGE</p>
-          <h1>One pick.<br />One chance.<br /><em>Stay standing.</em></h1>
-          <p class="intro">
-            Choose one team to win each round. You cannot choose them again,
-            and a draw or defeat means you are out.
-          </p>
-          <div class="actions">
-            <button type="button" disabled>Make your pick</button>
-            <span>Selections opening soon</span>
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Register for Last Man Standing.">
+  <title>Last Man Standing — Register</title><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="signup.css">
+</head>
+<body>
+  <main class="shell">
+    <nav><a class="brand" href="/"><b>LMS</b><span>Last Man Standing</span></a><span class="season">2026/27 Season</span></nav>
+    <section id="register-view" class="hero">
+      <div><p class="label">THE WEEKLY FOOTBALL CHALLENGE</p><h1>One pick.<br>One chance.<br><em>Stay standing.</em></h1><p class="intro">Registration is now open. Secure your place before the first round begins—competition access will be released by the organiser soon.</p></div>
+      <aside class="card">
+        <p class="label">PLAYER REGISTRATION</p><h2>Claim your place.</h2>
+        <p class="copy">Create an account to secure your place. We’ll let you know when the competition opens.</p>
+        <button id="google-sign-in" class="google" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path fill="#4285f4" d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.9h5.4a4.7 4.7 0 0 1-2 3v2.5h3.3c1.9-1.8 2.9-4.4 2.9-7.4Z"/><path fill="#34a853" d="M12 22c2.7 0 5-.9 6.7-2.4l-3.3-2.5c-.9.6-2 1-3.4 1a5.9 5.9 0 0 1-5.5-4.1H3.1v2.6A10.1 10.1 0 0 0 12 22Z"/><path fill="#fbbc05" d="M6.5 14a6 6 0 0 1 0-3.9V7.4H3.1A10.1 10.1 0 0 0 3.1 16.6L6.5 14Z"/><path fill="#ea4335" d="M12 6a5.5 5.5 0 0 1 3.9 1.5l2.9-2.9A9.8 9.8 0 0 0 3.1 7.4l3.4 2.7A5.9 5.9 0 0 1 12 6Z"/></svg><span>Register with Google</span></button>
+        <div class="divider"><span>or register with email</span></div>
+        <form id="email-registration">
+          <div class="name-fields">
+            <label>First name<input name="firstName" autocomplete="given-name" required></label>
+            <label>Last name<input name="lastName" autocomplete="family-name" required></label>
           </div>
-        </div>
-
-        <aside class="status-card" aria-label="Tournament status">
-          <p class="card-label">Tournament status</p>
-          <div class="status-row">
-            <span class="pulse" aria-hidden="true"></span>
-            <strong>Pre-season</strong>
-          </div>
-          <dl>
-            <div>
-              <dt>Players</dt>
-              <dd>—</dd>
-            </div>
-            <div>
-              <dt>Current round</dt>
-              <dd>—</dd>
-            </div>
-            <div>
-              <dt>Next deadline</dt>
-              <dd>TBC</dd>
-            </div>
-          </dl>
-        </aside>
-      </section>
-
-      <section class="rules" aria-labelledby="rules-title">
-        <div>
-          <p class="eyebrow">HOW IT WORKS</p>
-          <h2 id="rules-title">Simple rules.<br />Brutal consequences.</h2>
-        </div>
-        <ol>
-          <li><span>01</span>Pick one team to win their fixture.</li>
-          <li><span>02</span>You cannot select the same team twice.</li>
-          <li><span>03</span>If they fail to win, you are eliminated.</li>
-        </ol>
-      </section>
-    </main>
-
-    <footer>
-      <p>Last Man Standing</p>
-      <p>Built for the group. Glory for one.</p>
-    </footer>
-  </body>
+          <label>Email address<input name="email" type="email" autocomplete="email" required></label>
+          <label>Password<input name="password" type="password" autocomplete="new-password" minlength="8" required><small>At least 8 characters</small></label>
+          <label>Mobile number <span class="optional">Optional</span><input name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="+44 7700 900000"><small>Saved for future account security; SMS 2FA is not active.</small></label>
+          <button class="email-button" type="submit">Create my account</button>
+        </form>
+        <p id="auth-message" class="message" role="status" aria-live="polite"></p><p class="privacy">We only use your details to manage this competition and secure your account.</p>
+      </aside>
+    </section>
+    <section id="waiting-view" class="waiting" hidden>
+      <div class="tick">✓</div><p class="label">REGISTRATION COMPLETE</p><h1>You’re all set.<br><em>Stay tuned.</em></h1>
+      <p id="player-greeting" class="intro">Your place has been registered. We’ll open the competition when everything is ready.</p>
+      <div class="locked"><span>●</span> Competition locked</div><button id="sign-out" class="sign-out">Sign out</button>
+    </section>
+  </main>
+  <footer><p>Last Man Standing</p><p>Built for the group. Glory for one.</p></footer>
+  <script type="module" src="app.js"></script>
+</body>
 </html>
