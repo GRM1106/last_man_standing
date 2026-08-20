@@ -1,0 +1,7 @@
+.buy-back-panel { display:flex; align-items:center; justify-content:space-between; gap:25px; margin-top:14px; border:1px solid #79622e; padding:20px; background:rgba(230,186,105,.06); }
+.buy-back-panel strong { color:#e6ba69; }
+.buy-back-panel p { margin:6px 0 0; color:#a39a86; font-size:.78rem; }
+.buy-back-panel .claim-button { white-space:nowrap; }
+.pot-member-controls { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
+.pot-member-controls button { white-space:nowrap; }
+@media (max-width:700px) { .buy-back-panel { align-items:flex-start; flex-direction:column; } }
