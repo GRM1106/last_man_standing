@@ -4,7 +4,7 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="description" content="Your Last Man Standing tournament dashboard.">
   <title>Last Man Standing — Dashboard</title>
-  <link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="admin.css"><link rel="stylesheet" href="dashboard.css"><link rel="stylesheet" href="dashboard-layout.css"><link rel="stylesheet" href="selection.css">
+  <link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="admin.css"><link rel="stylesheet" href="dashboard.css"><link rel="stylesheet" href="dashboard-layout.css"><link rel="stylesheet" href="selection.css"><link rel="stylesheet" href="pick-confirmation.css">
 </head>
 <body>
   <main class="shell">
@@ -17,6 +17,18 @@
       <div id="dashboard-pots" class="dashboard-pots"></div>
     </section>
   </main>
+  <dialog id="pick-confirmation" class="pick-confirmation" aria-labelledby="pick-confirmation-title">
+    <form method="dialog" class="pick-confirmation-card">
+      <p class="label">CONFIRM YOUR PICK</p>
+      <div class="pick-confirmation-team"><img id="pick-confirmation-emblem" alt=""><h2 id="pick-confirmation-title"></h2></div>
+      <p id="pick-confirmation-fixture" class="pick-confirmation-fixture"></p>
+      <p class="pick-confirmation-warning">Once confirmed, this team is locked in and cannot be changed.</p>
+      <div class="pick-confirmation-actions">
+        <button class="pick-cancel" value="cancel" type="submit">Go back</button>
+        <button class="pick-lock" value="confirm" type="submit">Lock in team</button>
+      </div>
+    </form>
+  </dialog>
   <script type="module" src="dashboard.js"></script>
 </body>
 </html>

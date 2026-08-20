@@ -1,0 +1,14 @@
+.pick-confirmation{width:min(520px,calc(100% - 32px));border:1px solid #566054;padding:0;color:#f3f6ef;background:#171c17;box-shadow:0 24px 80px rgba(0,0,0,.65)}
+.pick-confirmation::backdrop{background:rgba(5,8,5,.78);backdrop-filter:blur(5px)}
+.pick-confirmation-card{padding:32px}
+.pick-confirmation-team{display:flex;align-items:center;gap:18px;margin:18px 0}
+.pick-confirmation-team img{width:62px;height:62px;object-fit:contain}
+.pick-confirmation-team h2{font-size:2.4rem}
+.pick-confirmation-fixture{margin:0;color:#aeb6ac;line-height:1.6}
+.pick-confirmation-warning{margin:24px 0;border-left:3px solid #e6ba69;padding:12px 15px;color:#e6ba69;background:rgba(230,186,105,.07);font-size:.8rem;line-height:1.5}
+.pick-confirmation-actions{display:grid;grid-template-columns:1fr 1.4fr;gap:10px}
+.pick-confirmation-actions button{min-height:48px;border:1px solid #536052;padding:12px;font:inherit;font-size:.8rem;font-weight:850;cursor:pointer}
+.pick-cancel{color:#c1c8bf;background:transparent}
+.pick-lock{border-color:#b8ff34!important;color:#101410;background:#b8ff34}
+.pick-confirmation-actions button:hover{filter:brightness(1.08)}
+@media(max-width:520px){.pick-confirmation-card{padding:24px}.pick-confirmation-team h2{font-size:2rem}.pick-confirmation-actions{grid-template-columns:1fr}}
