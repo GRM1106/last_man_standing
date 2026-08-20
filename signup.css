@@ -2,6 +2,7 @@
 .divider { display: flex; align-items: center; gap: 12px; margin: 24px 0; color: #717a70; font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
 .divider::before, .divider::after { content: ""; height: 1px; flex: 1; background: #3d453c; }
 form { display: grid; gap: 15px; }
+form[hidden] { display: none; }
 .name-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 label { display: grid; gap: 7px; color: #cbd1c8; font-size: .76rem; font-weight: 700; }
 label .optional { float: right; color: #70796f; font-weight: 500; }
@@ -11,4 +12,6 @@ small { color: #747d73; font-size: .67rem; font-weight: 400; }
 .email-button { min-height: 50px; border: 1px solid #b8ff34; padding: 13px 18px; color: #b8ff34; background: transparent; font: inherit; font-weight: 800; cursor: pointer; }
 .email-button:hover { color: #101410; background: #b8ff34; }
 .email-button:disabled { cursor: wait; opacity: .6; }
+.mode-button { display: block; margin: 18px auto 0; border: 0; padding: 4px; color: #aeb6ac; background: transparent; font: inherit; font-size: .76rem; text-decoration: underline; cursor: pointer; }
+.mode-button:hover { color: #b8ff34; }
 @media (max-width: 760px) { .hero { grid-template-columns: 1fr; } .name-fields { grid-template-columns: 1fr; } }

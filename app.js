@@ -6,6 +6,8 @@ const waitingView = document.querySelector("#waiting-view");
 const signInButton = document.querySelector("#google-sign-in");
 const signOutButton = document.querySelector("#sign-out");
 const emailForm = document.querySelector("#email-registration");
+const signInForm = document.querySelector("#email-sign-in");
+const modeButton = document.querySelector("#switch-auth-mode");
 const message = document.querySelector("#auth-message");
 const greeting = document.querySelector("#player-greeting");
 const configured = SUPABASE_URL.startsWith("https://") && !SUPABASE_URL.includes("YOUR_") && !SUPABASE_PUBLISHABLE_KEY.includes("YOUR_");
@@ -49,6 +51,25 @@ emailForm.addEventListener("submit",async(event)=>{
   if(error){message.textContent=error.message;return}
   if(data.session)showWaiting(data.user);
   else{emailForm.reset();message.textContent="Account created. Check your email to confirm your address."}
+});
+
+signInForm.addEventListener("submit",async(event)=>{
+  event.preventDefault();
+  if(!supabase){message.textContent="Sign in is being connected. Please check back soon.";return}
+  const submitButton=signInForm.querySelector("button[type='submit']");
+  const fields=new FormData(signInForm);
+  submitButton.disabled=true;message.textContent="Signing you in…";
+  const {error}=await supabase.auth.signInWithPassword({email:fields.get("email").trim(),password:fields.get("password")});
+  submitButton.disabled=false;
+  if(error)message.textContent=error.message;
+});
+
+modeButton.addEventListener("click",()=>{
+  const showingSignIn=!signInForm.hidden;
+  signInForm.hidden=showingSignIn;
+  emailForm.hidden=!showingSignIn;
+  modeButton.textContent=showingSignIn?"Already registered? Sign in":"Need an account? Register";
+  message.textContent="";
 });
 
 signOutButton.addEventListener("click",async()=>{if(supabase)await supabase.auth.signOut()});

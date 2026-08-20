@@ -25,6 +25,12 @@
           <label>Mobile number <span class="optional">Optional</span><input name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="+44 7700 900000"><small>Saved for future account security; SMS 2FA is not active.</small></label>
           <button class="email-button" type="submit">Create my account</button>
         </form>
+        <form id="email-sign-in" hidden>
+          <label>Email address<input name="email" type="email" autocomplete="email" required></label>
+          <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+          <button class="email-button" type="submit">Sign in</button>
+        </form>
+        <button id="switch-auth-mode" class="mode-button" type="button">Already registered? Sign in</button>
         <p id="auth-message" class="message" role="status" aria-live="polite"></p><p class="privacy">We only use your details to manage this competition and secure your account.</p>
       </aside>
     </section>
