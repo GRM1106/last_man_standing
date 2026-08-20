@@ -11,3 +11,9 @@
 .pot-danger-button[data-armed="true"] { color:#fff; background:#9e2f29; }
 .delete-pot-button { margin-left:auto; }
 @media (max-width:700px) { .pot-management select,.pot-management button { width:100%; } .delete-pot-button { margin-left:0; } }
+.pot-member:has(.payment-confirmation) { flex-wrap:wrap; }
+.payment-confirmation { display:flex; align-items:center; justify-content:flex-end; gap:8px; width:100%; padding:10px 0 2px; color:#d8ded5; font-size:.74rem; }
+.payment-confirmation button { padding:8px 10px; font:inherit; font-weight:800; cursor:pointer; }
+.payment-save-button { border:1px solid #b8ff34; color:#101410; background:#b8ff34; }
+.payment-cancel-button { border:1px solid #566054; color:#c1c8bf; background:transparent; }
+@media (max-width:700px) { .payment-confirmation { align-items:stretch; flex-direction:column; } .payment-confirmation button { width:100%; } }
