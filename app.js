@@ -2,23 +2,16 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
 
 const registerView = document.querySelector("#register-view");
-const waitingView = document.querySelector("#waiting-view");
 const signInButton = document.querySelector("#google-sign-in");
-const signOutButton = document.querySelector("#sign-out");
 const emailForm = document.querySelector("#email-registration");
 const signInForm = document.querySelector("#email-sign-in");
 const modeButton = document.querySelector("#switch-auth-mode");
 const message = document.querySelector("#auth-message");
-const greeting = document.querySelector("#player-greeting");
 const configured = SUPABASE_URL.startsWith("https://") && !SUPABASE_URL.includes("YOUR_") && !SUPABASE_PUBLISHABLE_KEY.includes("YOUR_");
 const supabase = configured ? createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY) : null;
 
-function showRegistration(){registerView.hidden=false;waitingView.hidden=true}
-function showWaiting(user){
-  const firstName=user?.user_metadata?.full_name?.split(" ")[0];
-  greeting.textContent=firstName?`${firstName}, your place has been registered. We’ll open the competition when everything is ready.`:"Your place has been registered. We’ll open the competition when everything is ready.";
-  registerView.hidden=true;waitingView.hidden=false;
-}
+function showRegistration(){registerView.hidden=false}
+function showWaiting(){window.location.replace("/waiting.html")}
 
 async function initialise(){
   if(!supabase){message.textContent="Registration is being connected. Please check back soon.";return}
@@ -72,5 +65,4 @@ modeButton.addEventListener("click",()=>{
   message.textContent="";
 });
 
-signOutButton.addEventListener("click",async()=>{if(supabase)await supabase.auth.signOut()});
 initialise();
