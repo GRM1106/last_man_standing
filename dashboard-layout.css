@@ -9,3 +9,24 @@
   color: #b8ff34;
   font: inherit;
 }
+
+.account-identity {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.account-identity[hidden] {
+  display: none;
+}
+
+.account-identity strong {
+  color: #edf2ea;
+  font-size: .78rem;
+}
+
+.account-identity small {
+  color: #899287;
+  font-size: .67rem;
+}

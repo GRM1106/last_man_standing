@@ -5,7 +5,7 @@ A registration page for a private Last Man Standing football tournament.
 ## Supabase setup
 
 1. Run `supabase/setup.sql` in the Supabase SQL Editor.
-2. Run `supabase/fix_google_names.sql`, `supabase/admin_setup.sql`, `supabase/pot_setup.sql`, `supabase/player_dashboard_setup.sql`, then `supabase/pot_gameweek_schedule.sql` in that order.
+2. Run `supabase/fix_google_names.sql`, `supabase/admin_setup.sql`, `supabase/pot_setup.sql`, `supabase/player_dashboard_setup.sql`, `supabase/pot_gameweek_schedule.sql`, then `supabase/fix_multiple_player_pots.sql` in that order.
 3. Enable Google under **Authentication → Sign In / Providers**.
 4. Add the production Vercel URL to the Supabase redirect URLs.
 5. Add the project URL and publishable key to `config.js`.
