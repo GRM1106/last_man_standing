@@ -4,6 +4,7 @@ import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
 const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 const greeting = document.querySelector("#player-greeting");
 const signOutButton = document.querySelector("#sign-out");
+const brandLink = document.querySelector("#waiting-brand");
 
 async function initialise(){
   const {data,error}=await supabase.auth.getSession();
@@ -17,5 +18,7 @@ signOutButton.addEventListener("click",async()=>{
   await supabase.auth.signOut();
   window.location.replace("/");
 });
+
+brandLink.addEventListener("click",event=>event.preventDefault());
 
 initialise();
