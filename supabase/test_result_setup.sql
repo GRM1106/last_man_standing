@@ -74,7 +74,8 @@ begin
         'preview_outcome',case
           when not pot.test_mode or test_result.fixture_id is null then pick.outcome
           when test_result.postponed then 'postponed'
-          when test_result.home_score=test_result.away_score then 'drawn'
+          -- In Last Man Standing, a draw eliminates the player just like a loss.
+          when test_result.home_score=test_result.away_score then 'lost'
           when (pick.team_id=fixture.home_team_id and test_result.home_score>test_result.away_score)
             or (pick.team_id=fixture.away_team_id and test_result.away_score>test_result.home_score) then 'won'
           else 'lost' end,
