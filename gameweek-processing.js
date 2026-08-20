@@ -55,7 +55,7 @@ async function applyProcessing(event){
   if(error){warning.className="processing-warning";warning.textContent=error.message;confirmButton.disabled=false;confirmButton.textContent="Try again";return}
   dialog.close();
   message.textContent=`GW${data.gameweek_number} processed: ${data.winners+data.postponed} survived and ${data.losers} eliminated.`;
-  document.querySelector(".admin-tab[data-view='picks']")?.click();
+  gameweekSelect.dispatchEvent(new Event("change"));
 }
 
 async function resetTestProcessing(){
@@ -64,7 +64,7 @@ async function resetTestProcessing(){
   resetButton.disabled=false;
   if(error){message.textContent=error.message;return}
   message.textContent=`GW${gameweekSelect.value} test processing reset.`;
-  document.querySelector(".admin-tab[data-view='picks']")?.click();
+  gameweekSelect.dispatchEvent(new Event("change"));
 }
 
 async function assignRandomPicks(){
@@ -88,7 +88,7 @@ async function assignRandomPicks(){
   randomButton.disabled=false;randomPreview=null;randomButton.textContent="Assign missing picks";randomButton.classList.remove("random-confirm");
   if(error){message.textContent=error.message;return}
   message.textContent=`${data.assigned} random pick${data.assigned===1?" was":"s were"} assigned with no passes or favours.`;
-  document.querySelector(".admin-tab[data-view='picks']")?.click();
+  gameweekSelect.dispatchEvent(new Event("change"));
 }
 
 function resetRandomPreview(){randomPreview=null;randomButton.textContent="Assign missing picks";randomButton.classList.remove("random-confirm")}
