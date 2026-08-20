@@ -25,6 +25,8 @@ async function initialise(){
     firstName=profile?.first_name;
   }
   showPersonalGreeting(firstName,firstNameStorageKey);
+  const {data:dashboard}=await supabase.rpc("get_my_dashboard");
+  if(dashboard?.approved&&dashboard?.pots?.length){window.location.replace("/dashboard.html");return}
   const {data:isAdmin}=await supabase.rpc("is_current_user_admin");
   adminLink.hidden=!isAdmin;
 }
