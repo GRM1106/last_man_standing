@@ -48,6 +48,10 @@ begin
     from public.pot_gameweeks gameweek
     join public.pots pot on pot.id=gameweek.pot_id
     where gameweek.pot_id=selected_pot_id
+      and not exists (
+        select 1 from public.pot_gameweek_processes processed
+        where processed.pot_id=selected_pot_id and processed.gameweek_number=gameweek.gameweek_number
+      )
       and exists (
         select 1 from public.football_fixtures fixture
         where fixture.season=pot.season and fixture.gameweek_number=gameweek.gameweek_number
