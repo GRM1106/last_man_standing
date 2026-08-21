@@ -75,8 +75,12 @@ Each application route also returned:
 ### Authentication-method coverage
 
 - Existing authenticated session on the preview origin: **passed**.
-- Email/password sign-in flow: **unknown / not independently evidenced**. The validation did not identify the method used to create the session.
-- Google OAuth round-trip: **unknown / not independently evidenced**. The validation did not identify the method used to create the session.
+- Email/password sign-in and logout: **passed**. The flow began logged out, authenticated successfully, remained on the exact preview origin, reached `/waiting`, survived an authenticated hard refresh, and ended with the preview-origin session cleared at `/`. Direct access to `/dashboard`, `/waiting`, and `/admin` then redirected to `/` without exposing protected content.
+- Google OAuth round-trip and logout: **passed**. The flow began logged out, completed the Google round-trip, returned to the exact preview origin at `/dashboard`, survived an authenticated hard refresh, and ended with the preview-origin session cleared at `/`. Direct access to `/dashboard`, `/waiting`, and `/admin` then redirected to `/` without exposing protected content.
+- Across both method-specific checks, observed Supabase RPCs returned `200`; no Supabase request failed or was blocked by CSP. No application runtime exception was observed.
+- Two asynchronous message-channel exceptions observed during the email/password handoff were attributable to a browser extension and were unrelated to the application or authentication result.
+- The only CSP-blocked resource in either authenticated verification was Vercel's nonessential preview-feedback script.
+- Method-specific authentication verification is complete.
 - Already-approved account routing: **passed**.
 - Waiting/approval behavior for an unapproved account: **untested** because no designated unapproved account was used.
 
@@ -96,11 +100,10 @@ Use designated test accounts only. Do not enter credentials into an automated ha
 - Verify Admin FPL synchronization with an explicitly authorized test pot. The proxy is repaired, but synchronization was not invoked because it writes to Supabase.
 - Run the stored-XSS check only with a designated test account and an inert payload, with explicit approval before changing test profile data.
 - Exercise pick, payment, buy-back, gameweek-processing, and other mutating workflows only with explicit authorization and isolated test data.
-- If release policy requires authentication-method-specific evidence, separately complete email/password and Google OAuth journeys without inferring either from the existing session.
 
 ## Status
 
 - LMS-06 is **preview-verified for automated and read-only authenticated behavior**. Effective headers, required application resources, Supabase HTTPS RPC traffic, routing, protected-route behavior, and authenticated rendering were verified on Vercel Preview.
-- Email/password and Google OAuth remain method-specific unknowns rather than claimed passes. Data-changing workflows remain outside this read-only verification scope.
+- Email/password and Google OAuth sign-in, authenticated hard refresh, exact-preview-origin return, and logout behavior are method-specifically verified. Data-changing workflows remain outside this read-only verification scope.
 - Based on the automated and read-only authenticated evidence, the preview is safe to promote from the LMS-06 perspective. This record does not approve production deployment or resolve the separate launch-blocking findings in the repository audit.
 - Production has not been modified or verified.
