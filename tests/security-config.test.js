@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 describe("deployment security policy", () => {
@@ -27,6 +27,18 @@ describe("deployment security policy", () => {
     expect(headers["X-Content-Type-Options"]).toBe("nosniff");
     expect(headers["Referrer-Policy"]).toBe("strict-origin-when-cross-origin");
     expect(headers["Permissions-Policy"]).toContain("camera=()");
+  });
+
+  it("keeps serverless JavaScript compatible with the ESM package runtime", () => {
+    const apiDirectory = new URL("../api/", import.meta.url);
+    const serverlessScripts = readdirSync(apiDirectory)
+      .filter(file => file.endsWith(".js"))
+      .map(file => readFileSync(new URL(file, apiDirectory), "utf8"))
+      .join("\n");
+
+    expect(serverlessScripts).not.toMatch(/\bmodule\.exports\b/);
+    expect(serverlessScripts).not.toMatch(/\bexports\s*\./);
+    expect(serverlessScripts).not.toMatch(/\brequire\s*\(/);
   });
 });
 
