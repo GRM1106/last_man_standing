@@ -9,6 +9,7 @@ Date: 2026-08-21
 - ESM proxy fix commit: `5b7150f922231e224a3ac206cdc26a09f1d7fa4d`
 - Environment: Vercel Preview (`production_environment: false`)
 - Fix preview URL: `https://last-man-standing-qtwb1hkfi-grm1106s-projects.vercel.app`
+- Authenticated validation URL: `https://last-man-standing-gq57dvqz0-grm1106s-projects.vercel.app`
 - Production promotion: not performed
 
 ## Automated results
@@ -55,22 +56,51 @@ Each application route also returned:
 - `Referrer-Policy: strict-origin-when-cross-origin`
 - `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()`
 
-## Authenticated checks still required
+## Authenticated read-only results
+
+- Authentication persisted on the exact Vercel preview origin.
+- A designated administrator-capable test account was used. No identity, credentials, session data, or player PII was recorded.
+- `/dashboard` loaded successfully through direct navigation and hard refresh.
+- `/waiting` correctly redirected the already-approved account to `/dashboard`.
+- `/admin` loaded successfully with the account's existing authorization. No admin action was invoked.
+- Ordinary calls to the dashboard, selection, history, team-availability, standings, deadline, and admin-check RPCs returned `200`.
+- Existing picks, fixtures, and standings rendered, and all 47 observed Premier League badge images loaded successfully.
+- No application runtime exception or unexpected network failure was observed.
+- No WebSocket connection was initiated during ordinary page loading. The application did not demonstrate a dependency on realtime traffic in this journey.
+- The only CSP block was Vercel's nonessential preview-feedback script. The application did not require it, and the CSP was not weakened.
+- Logout cleared the preview-origin session. After logout, direct navigation and hard refresh of `/dashboard`, `/waiting`, and `/admin` redirected to `/`, and protected content was no longer visible.
+- The production-origin session was untouched: no production-origin tab was claimed, inspected, navigated, or signed out.
+- No picks, FPL syncs, payments, buy-backs, gameweek processing, admin actions, or other application-data mutations were performed.
+
+### Authentication-method coverage
+
+- Existing authenticated session on the preview origin: **passed**.
+- Email/password sign-in flow: **unknown / not independently evidenced**. The validation did not identify the method used to create the session.
+- Google OAuth round-trip: **unknown / not independently evidenced**. The validation did not identify the method used to create the session.
+- Already-approved account routing: **passed**.
+- Waiting/approval behavior for an unapproved account: **untested** because no designated unapproved account was used.
+
+## Supabase Auth preview redirect configuration
+
+- Supabase Auth's additional redirect allowlist was updated by the project owner to permit the account-scoped preview pattern `https://*-grm1106s-projects.vercel.app/**`.
+- The production Site URL remains `https://www.grm-lms.co.uk`.
+- The allowlist pattern is scoped to previews under the named Vercel account; a completely broad `https://*.vercel.app/**` entry was not used.
+- The preview entry should be removed or narrowed after preview testing unless ongoing preview OAuth is intentionally supported.
+- This record documents the externally applied setting. No Supabase setting was changed during this validation.
+
+## Data-changing checks still requiring separate authorization
 
 Use designated test accounts only. Do not enter credentials into an automated handoff or alter real player data.
 
-- Complete email/password sign-in on the preview origin.
-- Complete the Google OAuth round-trip and confirm return to the preview origin.
 - Verify the waiting/approval screen with a designated unapproved test account.
-- Verify the player dashboard, pick rendering, standings rendering, and Premier League badges.
-- Verify the admin dashboard with a designated admin test account.
-- Confirm Supabase Auth, RPC, and PostgREST HTTPS traffic succeeds without CSP violations.
-- Confirm whether the application initiates any required Supabase WebSocket traffic; none was observed unauthenticated.
 - Verify Admin FPL synchronization with an explicitly authorized test pot. The proxy is repaired, but synchronization was not invoked because it writes to Supabase.
 - Run the stored-XSS check only with a designated test account and an inert payload, with explicit approval before changing test profile data.
+- Exercise pick, payment, buy-back, gameweek-processing, and other mutating workflows only with explicit authorization and isolated test data.
+- If release policy requires authentication-method-specific evidence, separately complete email/password and Google OAuth journeys without inferring either from the existing session.
 
 ## Status
 
-- LMS-06 is **not yet fully preview-verified** because authenticated email/password, Google OAuth, player, waiting, and admin journeys remain incomplete.
-- The automated unauthenticated preview checks pass, but the preview is **not yet safe to promote** until the authenticated checklist is completed.
+- LMS-06 is **preview-verified for automated and read-only authenticated behavior**. Effective headers, required application resources, Supabase HTTPS RPC traffic, routing, protected-route behavior, and authenticated rendering were verified on Vercel Preview.
+- Email/password and Google OAuth remain method-specific unknowns rather than claimed passes. Data-changing workflows remain outside this read-only verification scope.
+- Based on the automated and read-only authenticated evidence, the preview is safe to promote from the LMS-06 perspective. This record does not approve production deployment or resolve the separate launch-blocking findings in the repository audit.
 - Production has not been modified or verified.

@@ -7,7 +7,7 @@
 
 > **Premise correction (read this first).** The brief frames the app as "React + Vite." **It is not.** There is no React, no Vite, no bundler, no `package.json`, no build step, and no TypeScript anywhere in the repo (verified: a full-tree grep for `react|vite|webpack|jsx` returns nothing). The application is **hand-written vanilla HTML + ES-module JavaScript** loading `@supabase/supabase-js@2` from the `esm.sh` CDN at runtime, deployed as static files on Vercel, with a single Node serverless function ([api/fpl.js](api/fpl.js)) proxying the Fantasy Premier League feed. **All game logic and authorization live in Postgres (Supabase) `SECURITY DEFINER` functions and Row Level Security policies.** The framework verdict in §3 is written against what actually exists.
 
-> **Current local state — Security Phase 1, 2026-08-20.** The paragraph above records the original audited state at commit `9bea7cc`. Local, uncommitted remediation has since added Vite, a pinned package manifest and lockfile, Vitest/jsdom tests, a locally bundled Supabase client, safe DOM renderers, and security-header configuration. LMS-01: **Resolved locally and independently verified.** LMS-06: **Implemented and statically verified; live Vercel enforcement pending preview verification.** This working tree is ready to commit, but has not been committed, pushed, preview-deployed, or production-verified.
+> **Current Security Phase 1 state — 2026-08-21.** The paragraph above records the original audited state at commit `9bea7cc`. Remediation has since added Vite, a pinned package manifest and lockfile, Vitest/jsdom tests, a locally bundled Supabase client, safe DOM renderers, and security-header configuration. LMS-01: **Resolved locally and independently verified.** LMS-06: **Preview-verified for automated and read-only authenticated behavior.** The work is committed and preview-deployed; it has not been merged or production-deployed.
 
 ---
 
@@ -166,7 +166,7 @@ Ordered by risk. IDs are stable references for triage.
 ---
 
 ### LMS-06 — No Content-Security-Policy or hardening headers; runtime CDN dependency
-> **Remediation note — 2026-08-20: Implemented and statically verified; live Vercel enforcement pending preview verification.** The dependency/CDN portion is resolved: Supabase is pinned in `package.json`/`package-lock.json`, bundled locally by Vite, and no runtime `esm.sh` import remains. `vercel.json` contains a statically tested CSP plus `nosniff`, referrer, and permissions headers. Build, tests, online dependency audit, configuration checks, and local entry-point smoke checks passed. Actual response-header enforcement, OAuth, Supabase requests/WebSockets, badges, and `/api/fpl` still require a Vercel preview checklist.
+> **Remediation note — updated 2026-08-21: Preview-verified for automated and read-only authenticated behavior.** Supabase is pinned in `package.json`/`package-lock.json`, bundled locally by Vite, and no runtime `esm.sh` import remains. Vercel Preview enforced the configured CSP plus `nosniff`, referrer, and permissions headers. Required assets, `/api/fpl`, Supabase HTTPS RPC traffic, authenticated routing, protected-route logout behavior, and Premier League badges were verified. No WebSocket was initiated during ordinary page loading. Email/password and Google OAuth remain method-specific unknowns because the authenticated session's creation method was not identified.
 
 - **Severity:** Medium · **Confidence:** High · **Category:** Security / Supply chain
 - **Evidence:** [vercel.json](vercel.json) sets no headers. The Supabase client is imported at runtime from `https://esm.sh/@supabase/supabase-js@2` on every page — unpinned to a patch, no Subresource Integrity, no lockfile. A compromised or spoofed CDN response executes with full app privileges.
@@ -439,7 +439,7 @@ Concrete issues are catalogued in **LMS-15**. Highlights and acceptance criteria
 - FPL API references — confirmed fixtures come from `bootstrap-static` + `fixtures` and that fixture `id` is per-season, supporting the cross-season collision finding LMS-05. (accessed 2026-08-20)
 - OWASP Top 10 (A03 Injection, A07) / ASVS V5 referenced for the XSS and auth findings; WCAG 2.2 AA for §8.
 
-**Could not assess (needs environment/credentials):** live Supabase RLS as actually deployed (reviewed from SQL only); Auth provider settings (rate limits, email confirmation); the production Vercel domain and response headers as served; real FPL feed behaviour during result windows; runtime performance under load. Dynamic `npm audit`/dependency scanning was **not applicable** — there is no dependency manifest to scan (the sole runtime dependency is the unpinned esm.sh import noted in LMS-06).
+**Could not assess in the original audit (needs environment/credentials):** live Supabase RLS as actually deployed (reviewed from SQL only); Auth provider settings (rate limits, email confirmation); the production Vercel domain and response headers as served; real FPL feed behaviour during result windows; runtime performance under load. At audited commit `9bea7cc`, dynamic dependency scanning was not applicable because there was no dependency manifest and Supabase loaded from an unpinned `esm.sh` import. **Current remediated condition:** `package.json` and `package-lock.json` now exist, Supabase is pinned and bundled, `esm.sh` is removed from source and built output, and the online dependency audit reported zero vulnerabilities.
 
 ### Security Phase 1 validation addendum — 2026-08-20
 
@@ -449,12 +449,12 @@ An online `npm audit --audit-level=high` was independently reported clean; local
 
 Status boundaries:
 
-- **Ready to commit:** yes, subject to final diff review; changes remain local and uncommitted.
-- **Ready for preview deployment:** code/configuration is ready, but no preview deployment has been performed.
+- **Ready to commit:** completed on the dedicated Security Phase 1 preview branch.
+- **Ready for preview deployment:** completed; automated and read-only authenticated preview verification passed.
 - **Verified in production:** no.
 - **LMS-01:** **Resolved locally and independently verified.**
-- **LMS-06:** **Implemented and statically verified; live Vercel enforcement pending preview verification.**
+- **LMS-06:** **Preview-verified for automated and read-only authenticated behavior.**
 
-Still outstanding on a Vercel preview: confirm actual CSP and hardening response headers; Google OAuth completion; Supabase Auth/RPC/PostgREST and WebSocket traffic; Premier League badge loading and rejected-origin behavior; `/api/fpl`; routing for all four entries; and absence of browser console CSP violations during authenticated admin/player journeys.
+Preview verification confirmed the effective CSP and hardening headers, `/api/fpl`, all four entry routes, authenticated dashboard/admin routing, Supabase HTTPS RPC traffic, protected-route behavior after logout, and Premier League badges. No required WebSocket connection was initiated during ordinary page loading. Email/password and Google OAuth remain separately unverified as authentication methods, and data-changing workflows remain outside the read-only preview scope.
 
 **Limitations / false-positive notes:** LMS-05 is schema-certain but only *manifests* on a second-season sync; LMS-07 is a legal judgement flagged for advice, not a code defect; auth-hardening (LMS-09) partly depends on Supabase dashboard settings not visible in the repo.
