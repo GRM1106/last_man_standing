@@ -12,7 +12,7 @@ export default async function handler(_request,response){
     }
     const [bootstrap,fixtures]=await Promise.all([bootstrapResponse.json(),fixturesResponse.json()]);
     const teams=bootstrap.teams.map(({id,code,name,short_name})=>({id,code,name,short_name}));
-    const fixtureData=fixtures.map(({id,event,kickoff_time,team_h,team_a,team_h_score,team_a_score,started,finished,provisional_start_time})=>({id,event,kickoff_time,team_h,team_a,team_h_score,team_a_score,started,finished,provisional_start_time}));
+    const fixtureData=fixtures.map(({id,event,kickoff_time,team_h,team_a,team_h_score,team_a_score,started,finished,finished_provisional,provisional_start_time})=>({id,event,kickoff_time,team_h,team_a,team_h_score,team_a_score,started,finished,finished_provisional,provisional_start_time}));
     response.setHeader("Cache-Control","s-maxage=900, stale-while-revalidate=3600");
     response.status(200).json({teams,fixtures:fixtureData});
   }catch{

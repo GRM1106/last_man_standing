@@ -18,6 +18,7 @@ const fixtures = [
     team_a_score: 1,
     started: true,
     finished: true,
+    finished_provisional: false,
     provisional_start_time: false,
     ignored: true
   }
@@ -76,6 +77,7 @@ describe("FPL serverless proxy", () => {
         team_a_score: 1,
         started: true,
         finished: true,
+        finished_provisional: false,
         provisional_start_time: false
       }]
     });
