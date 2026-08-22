@@ -1,10 +1,30 @@
 # Domain Phase P2 — Controlled Result Corrections
 
-Status: local implementation only. **Do not apply this migration to production.**
+Status: committed on `domain/phase-p2`, deployed and schema/security verified on
+isolated staging, and not merged into `main`. **It is not approved or applied to
+production.**
 
 Phase P2 adds controlled authoritative fixture corrections on top of the P1
 provenance foundation. It does not recalculate historical rounds or change any
 existing resolution snapshot.
+
+## Staging verification
+
+The committed migration was deployed to the isolated `last-man-standing-staging`
+project (`evhiixndiuwwodsouyhf`, `eu-west-1`) as
+`20260822002400_result_corrections.sql`. Its source is commit
+`24b183091ec27d9f426c58ab2f1eab787ae7dbe2` and its SHA-256 is
+`7b4af55bf5f3e585fdd2f681cc645339694a7a82cef1e6da2d68d2596a38eccf`.
+Staging now contains exactly 24 migrations. The deployment introduced no
+application rows, and read-only schema and security inspection passed. A
+`pg_dump` warning about the self-referencing override-chain foreign key was
+expected. The administrator UI was not live-tested against staging.
+
+Staging proves migration deployment, migration history, final schema shape and
+security configuration. The disposable local Supabase execution separately
+proves functional correction behavior, finality, authorization, rollback,
+idempotency and all three concurrency races. Neither evidence source authorizes
+production application.
 
 ## Result model
 
@@ -142,7 +162,8 @@ while the competing correction waits and fails with the same stale-version error
 The final verification script must pass. These assets commit synthetic data and
 are permitted only in a disposable database that is destroyed immediately afterward.
 
-Never run the disposable verifier, P1 seeds, or failure fixtures in production.
+Never run disposable seed, rollback-verification, concurrency, preflight or
+failure-test scripts against staging or production.
 
 ## Explicitly deferred
 

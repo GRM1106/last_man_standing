@@ -61,10 +61,26 @@ Apply the SQL modules in this exact order:
 
 Module 23 is the forward-only Phase P1 foundation. Module 24 is the forward-only
 Phase P2 controlled-correction layer. Read [`DOMAIN_PHASE_P1.md`](DOMAIN_PHASE_P1.md)
-and [`DOMAIN_PHASE_P2.md`](DOMAIN_PHASE_P2.md) before using them. P2 is currently
-local-only and is explicitly prohibited from production application. Its
+and [`DOMAIN_PHASE_P2.md`](DOMAIN_PHASE_P2.md) before using them. P2 is committed
+on `domain/phase-p2`, deployed and schema/security verified on isolated staging,
+and not merged into `main`. It is not approved or applied to production. Its
 `supabase/result_corrections_verification.sql` companion is rollback-only and is
 intended only for a disposable/local Supabase database.
+
+The staging deployment used project `last-man-standing-staging`
+(`evhiixndiuwwodsouyhf`, `eu-west-1`), migration
+`20260822002400_result_corrections.sql`, source commit
+`24b183091ec27d9f426c58ab2f1eab787ae7dbe2`, and SHA-256
+`7b4af55bf5f3e585fdd2f681cc645339694a7a82cef1e6da2d68d2596a38eccf`.
+Staging contains exactly 24 migrations, no application rows were introduced,
+and schema/security verification passed. The `pg_dump` self-referencing
+override-chain foreign-key warning was expected. The administrator UI was not
+live-tested against staging.
+
+Staging proves deployment, migration history, schema shape and security
+configuration. Disposable local testing proves functional behavior, finality,
+authorization, rollback, idempotency and all three concurrency races. Production
+application remains prohibited.
 
 P1 database testing requires a real disposable Supabase-compatible PostgreSQL
 instance with the Supabase Auth schema, `auth.uid()`, the `anon`, `authenticated`,
@@ -95,6 +111,9 @@ database sessions, exactly as documented in [`DOMAIN_PHASE_P2.md`](DOMAIN_PHASE_
 They are disposable-only, commit synthetic rows, and require destruction of the
 entire local stack afterward. They are not migrations and must never be applied
 to staging or production.
+
+No disposable seed, rollback-verification, concurrency, preflight or
+failure-test script may run against staging or production.
 
 ### FPL synchronization
 
