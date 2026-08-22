@@ -57,8 +57,14 @@ Apply the SQL modules in this exact order:
 21. `supabase/standings_window.sql`
 22. `supabase/player_team_availability.sql`
 23. `supabase/result_provenance_foundation.sql`
+24. `supabase/result_corrections.sql`
 
-The final file is the forward-only Phase P1 migration for existing deployments as well as the last clean-install module. Read [`DOMAIN_PHASE_P1.md`](DOMAIN_PHASE_P1.md) before applying it. Its companion `supabase/result_provenance_foundation_verification.sql` is transaction-wrapped but is intended only for a disposable/local Supabase database, never production.
+Module 23 is the forward-only Phase P1 foundation. Module 24 is the forward-only
+Phase P2 controlled-correction layer. Read [`DOMAIN_PHASE_P1.md`](DOMAIN_PHASE_P1.md)
+and [`DOMAIN_PHASE_P2.md`](DOMAIN_PHASE_P2.md) before using them. P2 is currently
+local-only and is explicitly prohibited from production application. Its
+`supabase/result_corrections_verification.sql` companion is rollback-only and is
+intended only for a disposable/local Supabase database.
 
 P1 database testing requires a real disposable Supabase-compatible PostgreSQL
 instance with the Supabase Auth schema, `auth.uid()`, the `anon`, `authenticated`,
@@ -77,11 +83,24 @@ database, apply modules 1–22, apply
 run `supabase/result_provenance_failure_verification.sql`. Never run any seed or
 verification script against production.
 
+P2 disposable verification starts only after the complete P1 disposable path:
+apply `supabase/result_corrections.sql`, then run
+`supabase/result_corrections_verification.sql`. The latter rolls back every
+synthetic row and verifies cleanup. Do not use either P1 seed to manufacture
+legacy state after P1 has already been applied.
+
+P2 concurrency verification additionally uses the eight
+`supabase/result_corrections_concurrency_*.sql` assets in two independent local
+database sessions, exactly as documented in [`DOMAIN_PHASE_P2.md`](DOMAIN_PHASE_P2.md).
+They are disposable-only, commit synthetic rows, and require destruction of the
+entire local stack afterward. They are not migrations and must never be applied
+to staging or production.
+
 ### FPL synchronization
 
 FPL synchronization is safe for new or historical seasons only after the final
 P1 migration is installed. On an existing deployment, apply only the new forward
-migration and verify it before the next sync. On a clean install, finish all 23
+P1 migration and verify it before the next sync. On a clean P2 test install, finish all 24
 modules before the first sync. Do not use the administrator sync control while
 the database is between `fpl_fixture_setup.sql` and
 `result_provenance_foundation.sql`; the legacy global provider IDs can overwrite

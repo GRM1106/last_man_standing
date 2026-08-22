@@ -8,6 +8,7 @@ import {
   renderMetric,
   renderStandingPick,
 } from "./ui.js";
+import { correctionErrorMessage, filterAdminFixtures, loadAdminFixtureResults, renderAdminFixtureResults, resultScore } from "./fixture-results-ui.js";
 const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 const loading = document.querySelector("#admin-loading"),
   denied = document.querySelector("#admin-denied"),
@@ -32,6 +33,15 @@ const loading = document.querySelector("#admin-loading"),
   syncFplButton = document.querySelector("#sync-fpl"),
   fixtureList = document.querySelector("#fixture-list"),
   fixtureSyncDetail = document.querySelector("#fixture-sync-detail"),
+  fixtureGameweekFilter = document.querySelector("#fixture-gameweek-filter"),
+  fixtureSearch = document.querySelector("#fixture-search"),
+  fixtureCorrectionDialog = document.querySelector("#fixture-correction-dialog"),
+  fixtureCorrectionForm = document.querySelector("#fixture-correction-form"),
+  fixtureCorrectionTitle = document.querySelector("#fixture-correction-title"),
+  fixtureCorrectionImpact = document.querySelector("#fixture-correction-impact"),
+  previewFixtureCorrectionButton = document.querySelector("#preview-fixture-correction"),
+  confirmFixtureCorrectionButton = document.querySelector("#confirm-fixture-correction"),
+  cancelFixtureCorrectionButton = document.querySelector("#cancel-fixture-correction"),
   pickPot = document.querySelector("#pick-pot"),
   pickGameweek = document.querySelector("#pick-gameweek"),
   adminPickList = document.querySelector("#admin-pick-list"),
@@ -45,6 +55,9 @@ const pickDeadline = document.querySelector("#pick-deadline"),
   randomPickButton = document.querySelector("#assign-random-picks");
 const CURRENT_SEASON = "2026/27";
 let allPlayers = [];
+let allFixtures = [];
+let selectedCorrectionFixture = null;
+let selectedCorrectionPayload = null;
 const playerName = (player) =>
   [player.first_name, player.last_name].filter(Boolean).join(" ") ||
   player.display_name ||
@@ -633,87 +646,130 @@ async function completePot(pot, winnerId, button) {
   message.textContent = `${pot.name} is complete and the winner is recorded.`;
   await loadPots();
 }
-function fixtureTeam(team, isAway = false) {
-  const wrapper = document.createElement("div");
-  wrapper.className = `fixture-team${isAway ? " away" : ""}`;
-  const image = addImage(wrapper, team.emblem_url);
-  const name = document.createElement("span");
-  name.textContent = team.short_name;
-  wrapper.replaceChildren(...(isAway ? [name, image] : [image, name]));
-  return wrapper;
-}
-function renderFixtures(fixtures, teams) {
-  fixtureList.replaceChildren();
-  playerCount.textContent = fixtures.length;
-  countLabel.textContent = fixtures.length === 1 ? "fixture" : "fixtures";
-  if (!fixtures.length) {
-    const empty = document.createElement("p");
-    empty.className = "fixture-empty";
-    empty.textContent = "No fixtures imported yet. Use Sync FPL data above.";
-    fixtureList.append(empty);
-    return;
-  }
-  const teamMap = new Map(teams.map((team) => [team.id, team]));
-  fixtures.slice(0, 30).forEach((fixture) => {
-    const home = teamMap.get(fixture.home_team_id),
-      away = teamMap.get(fixture.away_team_id);
-    if (!home || !away) return;
-    const row = document.createElement("article");
-    row.className = "fixture-row";
-    const gameweek = document.createElement("span");
-    gameweek.className = "fixture-gameweek";
-    gameweek.textContent = fixture.gameweek_number
-      ? `GW${fixture.gameweek_number}`
-      : "TBC";
-    const score = document.createElement("strong");
-    score.className = "fixture-score";
-    score.textContent = fixture.finished
-      ? `${fixture.home_score} – ${fixture.away_score}`
-      : "v";
-    const time = document.createElement("time");
-    time.className = "fixture-time";
-    if (fixture.kickoff_at) {
-      const kickoff = new Date(fixture.kickoff_at);
-      time.dateTime = fixture.kickoff_at;
-      time.textContent = kickoff.toLocaleString("en-GB", {
-        weekday: "short",
-        day: "numeric",
-        month: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-    } else time.textContent = "Time TBC";
-    row.append(
-      gameweek,
-      fixtureTeam(home),
-      score,
-      fixtureTeam(away, true),
-      time,
-    );
-    fixtureList.append(row);
-  });
-}
 async function loadFixtures() {
   message.textContent = "Loading fixtures…";
-  const [fixturesResult, teamsResult] = await Promise.all([
-    supabase
-      .from("football_fixtures")
-      .select("*")
-      .eq("season", CURRENT_SEASON)
-      .order("kickoff_at", { ascending: true, nullsFirst: false }),
-    supabase.from("football_teams").select("id,name,short_name,emblem_url"),
-  ]);
-  const error = fixturesResult.error || teamsResult.error;
-  if (error) {
-    message.textContent = `Couldn’t load fixtures: ${error.message}. Run 09 — FPL clubs and fixture import in Supabase.`;
+  const { fixtures, errorMessage } = await loadAdminFixtureResults(supabase, CURRENT_SEASON);
+  if (errorMessage) {
+    message.textContent = errorMessage;
     fixtureList.replaceChildren();
     return;
   }
   message.textContent = "";
-  fixtureSyncDetail.textContent = fixturesResult.data.length
-    ? `${fixturesResult.data.length} fixtures saved for ${CURRENT_SEASON}. The list below shows the first 30.`
+  allFixtures = fixtures;
+  fixtureSyncDetail.textContent = fixtures.length
+    ? `${fixtures.length} fixtures saved for ${CURRENT_SEASON}. Raw provider and effective authoritative results are shown separately.`
     : "No football data has been synced yet.";
-  renderFixtures(fixturesResult.data, teamsResult.data);
+  playerCount.textContent = fixtures.length;
+  countLabel.textContent = fixtures.length === 1 ? "fixture" : "fixtures";
+  const selectedGameweek = fixtureGameweekFilter.value;
+  fixtureGameweekFilter.replaceChildren(new Option("All gameweeks", ""));
+  [...new Set(fixtures.map((fixture) => fixture.gameweek_number).filter(Boolean))].sort((a, b) => a - b)
+    .forEach((gameweek) => fixtureGameweekFilter.add(new Option(`GW${gameweek}`, String(gameweek))));
+  fixtureGameweekFilter.value = selectedGameweek;
+  renderFilteredFixtures();
+}
+function renderFilteredFixtures() {
+  renderAdminFixtureResults(fixtureList,
+    filterAdminFixtures(allFixtures, fixtureGameweekFilter.value, fixtureSearch.value),openFixtureCorrection);
+}
+function closeFixtureCorrection() {
+  selectedCorrectionFixture = null;
+  selectedCorrectionPayload = null;
+  fixtureCorrectionImpact.replaceChildren();
+  confirmFixtureCorrectionButton.hidden = true;
+  previewFixtureCorrectionButton.hidden = false;
+  fixtureCorrectionDialog.close();
+}
+function correctionPayload() {
+  const form = new FormData(fixtureCorrectionForm),
+    nullableScore = (name) => {
+      const value = String(form.get(name) || "").trim();
+      return value === "" ? null : Number(value);
+    };
+  return {
+    selected_fixture_id: selectedCorrectionFixture.id,
+    selected_home_score: nullableScore("homeScore"),
+    selected_away_score: nullableScore("awayScore"),
+    selected_status: String(form.get("status")),
+    selected_reason: String(form.get("reason") || "").trim(),
+  };
+}
+function openFixtureCorrection(fixture) {
+  selectedCorrectionFixture = fixture;
+  selectedCorrectionPayload = null;
+  fixtureCorrectionForm.reset();
+  fixtureCorrectionTitle.textContent = `${fixture.home_team.name} v ${fixture.away_team.name}`;
+  fixtureCorrectionForm.elements.status.value = ["finished","postponed","abandoned","void"].includes(fixture.effective.status)
+    ? fixture.effective.status : "finished";
+  fixtureCorrectionForm.elements.homeScore.value = fixture.effective.home_score ?? "";
+  fixtureCorrectionForm.elements.awayScore.value = fixture.effective.away_score ?? "";
+  fixtureCorrectionImpact.replaceChildren();
+  confirmFixtureCorrectionButton.hidden = true;
+  previewFixtureCorrectionButton.hidden = false;
+  fixtureCorrectionDialog.showModal();
+}
+function renderCorrectionImpact(data) {
+  fixtureCorrectionImpact.replaceChildren();
+  addText(
+    fixtureCorrectionImpact,
+    "strong",
+    `Effective result will change from ${resultScore(data.effective_before)} (${data.effective_before.status}) to ${resultScore(data.proposed)} (${data.proposed.status}).`,
+  );
+  const affected = data.affected_pots || [];
+  addText(
+    fixtureCorrectionImpact,
+    "span",
+    affected.length
+      ? `${affected.length} pot${affected.length === 1 ? "" : "s"} use this fixture.`
+      : "No existing pot pick uses this fixture.",
+  );
+  addText(
+    fixtureCorrectionImpact,
+    "span",
+    data.review_count
+      ? `${data.review_count} processed or completed pot${data.review_count === 1 ? "" : "s"} will be flagged for review. Existing outcomes, player states and winners will not change.`
+      : "No processed or completed pot will be changed.",
+    data.review_count ? "fixture-impact-warning" : "fixture-impact-safe",
+  );
+}
+async function previewFixtureCorrection(event) {
+  event.preventDefault();
+  previewFixtureCorrectionButton.disabled = true;
+  fixtureCorrectionImpact.replaceChildren();
+  const payload = correctionPayload(),
+    { data, error } = await supabase.rpc("preview_fixture_result_override", payload);
+  previewFixtureCorrectionButton.disabled = false;
+  if (error) {
+    addText(fixtureCorrectionImpact, "span", correctionErrorMessage(error), "fixture-impact-warning");
+    return;
+  }
+  selectedCorrectionPayload = { ...payload, expected_effective_version: data.effective_version };
+  renderCorrectionImpact(data);
+  previewFixtureCorrectionButton.hidden = true;
+  confirmFixtureCorrectionButton.hidden = false;
+}
+async function confirmFixtureCorrection() {
+  if (!selectedCorrectionPayload) return;
+  confirmFixtureCorrectionButton.disabled = true;
+  message.textContent = "Creating the append-only fixture correction…";
+  const { data, error } = await supabase.rpc(
+    "create_fixture_result_override",
+    selectedCorrectionPayload,
+  );
+  confirmFixtureCorrectionButton.disabled = false;
+  if (error) {
+    selectedCorrectionPayload = null;
+    confirmFixtureCorrectionButton.hidden = true;
+    previewFixtureCorrectionButton.hidden = false;
+    fixtureCorrectionImpact.replaceChildren();
+    addText(fixtureCorrectionImpact, "span", correctionErrorMessage(error), "fixture-impact-warning");
+    return;
+  }
+  closeFixtureCorrection();
+  message.textContent = data.review_count
+    ? `Correction saved. ${data.review_count} pot${data.review_count === 1 ? "" : "s"} flagged for review; no historical result was recalculated.`
+    : "Correction saved. Provider raw values were preserved.";
+  await loadFixtures();
 }
 async function syncFplData() {
   syncFplButton.disabled = true;
@@ -1215,3 +1271,17 @@ signOutButton.addEventListener("click", async () => {
 initialise();
 syncFplButton.addEventListener("click", syncFplData);
 testModeToggle.addEventListener("click", toggleTestMode);
+fixtureCorrectionForm.addEventListener("submit", previewFixtureCorrection);
+fixtureCorrectionForm.addEventListener("input", () => {
+  selectedCorrectionPayload = null;
+  confirmFixtureCorrectionButton.hidden = true;
+  previewFixtureCorrectionButton.hidden = false;
+  fixtureCorrectionImpact.replaceChildren();
+});
+confirmFixtureCorrectionButton.addEventListener("click", confirmFixtureCorrection);
+cancelFixtureCorrectionButton.addEventListener("click", closeFixtureCorrection);
+fixtureCorrectionDialog
+  .querySelector(".dialog-close")
+  .addEventListener("click", closeFixtureCorrection);
+fixtureGameweekFilter.addEventListener("change", renderFilteredFixtures);
+fixtureSearch.addEventListener("input", renderFilteredFixtures);
