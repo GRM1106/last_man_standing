@@ -77,7 +77,7 @@ select public.set_test_pick_scenario('00000000-0000-0000-0000-000000003101',-313
 select public.process_pot_gameweek('00000000-0000-0000-0000-000000003101',1,true);
 do $$ begin
   if not exists(select 1 from public.player_picks where id=-31302 and outcome='lost' and resolved_at is not null)
-    or not exists(select 1 from public.pot_players where pot_id='00000000-0000-0000-0000-000000003101' and player_status='active') then
+    or not exists(select 1 from public.pot_players where pot_id='00000000-0000-0000-0000-000000003101' and player_status='active' and buy_back_status='available' and buy_back_used_at is null) then
     raise exception 'Win-reset-loss did not preserve the loss and collectively reinstate the sole cohort';
   end if;
 end; $$;
