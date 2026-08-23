@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:db": "bash scripts/test-db-phase1.sh",
     "test:watch": "vitest",
     "check": "npm test && npm run build",
     "audit": "npm audit --audit-level=high"
