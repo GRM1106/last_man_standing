@@ -65,7 +65,6 @@ function teamButton(team, fixture, pot, selection, isAway = false) {
   if (!team.available) addText(copy, "small", "Already used");
   button.append(copy);
   button.disabled =
-    selection.payment_status !== "paid" ||
     selection.player_status !== "active" ||
     selection.deadline_passed ||
     !team.available ||
@@ -147,13 +146,6 @@ function renderSelection(pot, selection, panel) {
     );
     return;
   }
-  if (selection.payment_status !== "paid")
-    addText(
-      panel,
-      "p",
-      "You can review the fixtures now. Team selection unlocks after the admin confirms your entry payment.",
-      "selection-note warning",
-    );
   const grouped = new Map();
   (selection.fixtures || []).forEach((fixture) => {
     const day = fixture.kickoff_at
@@ -584,7 +576,7 @@ async function loadDashboard() {
     accountEmail.textContent = data.email;
     accountIdentity.hidden = false;
   }
-  if (!data?.approved || !data?.pots?.length) {
+  if (!data?.pots?.length) {
     loading.hidden = true;
     empty.hidden = false;
     return;

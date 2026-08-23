@@ -137,13 +137,13 @@ async function setApproval(player, newApproved, button) {
 }
 function renderPotPlayerOptions() {
   potPlayerOptions.replaceChildren();
-  const approved = allPlayers.filter((player) => player.approved);
-  if (!approved.length) {
+  const availablePlayers = allPlayers;
+  if (!availablePlayers.length) {
     potPlayerOptions.textContent =
       "Approve at least one player before creating a pot.";
     return;
   }
-  approved.forEach((player) => {
+  availablePlayers.forEach((player) => {
     const label = document.createElement("label");
     label.className = "check-option";
     const input = document.createElement("input");
@@ -359,9 +359,9 @@ function addPotManagement(pots, members) {
     const select = document.createElement("select");
     select.setAttribute("aria-label", `Add a player to ${pot.name}`);
     const available = allPlayers.filter(
-      (player) => player.approved && !memberIds.has(player.id),
+      (player) => !memberIds.has(player.id),
     );
-    select.innerHTML = '<option value="">Select approved player</option>';
+    select.innerHTML = '<option value="">Select registered player</option>';
     available.forEach((player) => {
       const option = document.createElement("option");
       option.value = player.id;
@@ -1239,7 +1239,7 @@ potForm.addEventListener("submit", async (event) => {
     return;
   }
   if (!playerIds.length) {
-    message.textContent = "Assign at least one approved player.";
+    message.textContent = "Assign at least one registered player.";
     return;
   }
   const gameweeks = Array.from(

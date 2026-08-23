@@ -49,7 +49,7 @@ describe("rendering sink inventory", () => {
       .join("\n");
     const occurrences = scripts.match(/\.innerHTML\s*=/g) || [];
     expect(occurrences).toHaveLength(1);
-    expect(scripts.match(/select\.innerHTML\s*=\s*'<option value="">Select approved player<\/option>';/g)).toHaveLength(1);
+    expect(scripts.match(/select\.innerHTML\s*=\s*'<option value="">Select registered player<\/option>';/g)).toHaveLength(1);
     expect(scripts).not.toMatch(/innerHTML\s*=\s*`/);
     expect(scripts).not.toMatch(/\.outerHTML\s*=/);
     expect(scripts).not.toMatch(/\.insertAdjacentHTML\s*\(/);
