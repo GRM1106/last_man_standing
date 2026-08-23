@@ -272,6 +272,14 @@ function renderPots(pots, gameweeks, members) {
       memberList.append(row);
     });
     card.append(heading, weeks, memberList);
+    if (pot.review_status === "needs_review") {
+      addText(
+        card,
+        "p",
+        pot.review_reason || "This pot requires administrator review.",
+        "test-mode-note",
+      );
+    }
     potList.append(card);
   });
 }
@@ -448,7 +456,7 @@ function addTournamentControls(pots, members) {
       );
       bar.append(reset);
     }
-    if (active.length === 1 && pot.status !== "complete") {
+    if (active.length === 1 && pot.status === "active" && !pot.test_mode) {
       const player = allPlayers.find((item) => item.id === active[0].player_id),
         finish = document.createElement("button");
       finish.type = "button";

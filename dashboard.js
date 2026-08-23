@@ -8,6 +8,7 @@ import {
   renderStandingPick,
   safeImageUrl,
 } from "./ui.js";
+import { countdownText, updatePickDeadlineStates } from "./deadline-ui.js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 const loading = document.querySelector("#dashboard-loading"),
@@ -50,22 +51,7 @@ function formDots(team) {
   );
   return form;
 }
-function countdownText(deadline) {
-  const remaining = new Date(deadline) - new Date();
-  if (remaining <= 0) return "Deadline passed";
-  const days = Math.floor(remaining / 86400000),
-    hours = Math.floor((remaining % 86400000) / 3600000),
-    minutes = Math.floor((remaining % 3600000) / 60000),
-    seconds = Math.floor((remaining % 60000) / 1000);
-  return `${days ? `${days}d ` : ""}${String(hours).padStart(2, "0")}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`;
-}
-function updateCountdowns() {
-  document.querySelectorAll("[data-deadline]").forEach((element) => {
-    element.textContent = countdownText(element.dataset.deadline);
-    if (new Date(element.dataset.deadline) <= new Date())
-      element.closest(".selection-deadline")?.classList.add("passed");
-  });
-}
+const updateCountdowns = () => updatePickDeadlineStates(document);
 setInterval(updateCountdowns, 1000);
 function teamButton(team, fixture, pot, selection, isAway = false) {
   const button = document.createElement("button");

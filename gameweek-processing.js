@@ -62,7 +62,7 @@ async function resetTestProcessing(){
   const {error}=await supabase.rpc("reset_test_gameweek",{selected_pot_id:potSelect.value,selected_gameweek:Number(gameweekSelect.value)});
   resetButton.disabled=false;
   if(error){message.textContent=error.message;return}
-  message.textContent=`GW${gameweekSelect.value} test processing reset.`;
+  message.textContent=`GW${gameweekSelect.value} test processing reset. Picks for this round were cleared and must be locked again.`;
   gameweekSelect.dispatchEvent(new Event("change"));
 }
 
