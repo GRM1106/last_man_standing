@@ -387,6 +387,8 @@ function renderPot(pot) {
   header.prepend(title);
   const summary = document.createElement("div");
   summary.className = "dashboard-summary compact";
+  const completion = document.createElement("section");
+  completion.className = "completion-summary";
   [
     ["Player status", titleCase(pot.player_status)],
     ["Buy-back", titleCase(pot.buy_back_status)],
@@ -517,13 +519,28 @@ function renderPot(pot) {
     link.textContent = label;
     quickNav.append(link);
   });
-  card.append(header, quickNav, summary, payment);
+  card.append(header, quickNav, summary, completion, payment);
   if (buyBack.childElementCount) card.append(buyBack);
   card.append(gameweeks, selection, history, standings);
   potsContainer.append(card);
   loadPotSelection(pot, selection);
   loadPickHistory(pot, history);
   loadPlayerStandings(pot, standings);
+  loadPotCompletion(pot, completion);
+}
+async function loadPotCompletion(pot, panel) {
+  const { data, error } = await supabase.rpc("get_pot_completion", { selected_pot_id: pot.id });
+  if (error || !data) { panel.remove(); return; }
+  const names=(data.winners||[]).map(winner=>winner.name);
+  addText(panel,"h3",`${names.length===1?"Winner":"Winners"}: ${names.join(", ")}`);
+  addText(panel,"strong",`Prize pot: ${money(data.total_prize_pence)}`);
+  addText(panel,"p",`${data.winner_count} winner${data.winner_count===1?"":"s"}`);
+  const mine=(data.winners||[]).find(winner=>winner.is_me);
+  if(mine) addText(panel,"p",`Your share: ${money(mine.prize_share_pence)}`);
+  const explanation=data.resolution_rule==="gw38_buyback_eligible_split"
+    ? "GW38 finished with no surviving picks. Players with an unused buy-back shared the pot."
+    : data.resolution_rule==="gw38_all_lost_split" ? "GW38 finished with no surviving picks, so the final cohort shared the pot." : "The GW38 surviving pick or picks won the pot.";
+  addText(panel,"p",explanation);
 }
 async function loadPickHistory(pot, panel) {
   const { data, error } = await supabase.rpc("get_my_pot_history", {

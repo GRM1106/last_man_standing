@@ -457,22 +457,16 @@ function addTournamentControls(pots, members) {
       );
       bar.append(reset);
     }
-    if (active.length === 1 && pot.status === "active" && !pot.test_mode) {
-      const player = allPlayers.find((item) => item.id === active[0].player_id),
-        finish = document.createElement("button");
-      finish.type = "button";
-      finish.className = "winner-button";
-      finish.dataset.original = `Crown ${player ? playerName(player) : "winner"}`;
-      finish.textContent = finish.dataset.original;
-      finish.addEventListener("click", () =>
-        armAction(finish, "Click again to complete pot", () =>
-          completePot(pot, active[0].player_id, finish),
-        ),
-      );
-      bar.append(finish);
-    }
+    const completion=document.createElement("div"); completion.className="completion-summary"; card.prepend(completion); loadAdminCompletion(pot,completion);
     card.prepend(bar);
   });
+}
+async function loadAdminCompletion(pot,panel){
+  const {data,error}=await supabase.rpc("get_pot_completion",{selected_pot_id:pot.id});
+  if(error){panel.textContent="Winner summary unavailable.";return;} if(!data){panel.remove();return;}
+  addText(panel,"strong",`Final winners · ${money(data.total_prize_pence)} prize pot`);
+  (data.winners||[]).forEach(winner=>addText(panel,"p",`${winner.name} — ${money(winner.prize_share_pence)}`));
+  addText(panel,"small",data.resolution_rule.replaceAll("_"," "));
 }
 async function loadPots() {
   message.textContent = "Loading pots…";
