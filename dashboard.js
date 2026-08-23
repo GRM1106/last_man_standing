@@ -443,33 +443,37 @@ function renderPot(pot) {
     const button = addText(
       buyBack,
       "button",
-      "I’ve paid — claim buy-back",
+      `Buy back for ${money(pot.buy_back_fee_pence)}`,
       "claim-button",
     );
     button.type = "button";
     button.addEventListener("click", () => claimBuyBack(pot.id, button));
     buyBack.prepend(copy);
-  } else if (pot.buy_back_status === "claimed") {
-    addText(buyBack, "strong", "Buy-back awaiting approval");
+  } else if (pot.buy_back_status === "requested") {
+    addText(buyBack, "strong", "Buy-back requested — you're back in the game");
     addText(
       buyBack,
       "p",
-      "Your claim was submitted in time. The admin will confirm your payment and reactivate you.",
+      "Payment confirmation is pending. You can participate in the next round now.",
     );
-  } else if (pot.buy_back_status === "used") {
-    addText(buyBack, "strong", "Buy-back used");
+  } else if (pot.buy_back_status === "confirmed") {
+    addText(buyBack, "strong", "Buy-back confirmed");
     addText(
       buyBack,
       "p",
-      "You are back in the pot. Your one-time buy-back has now been used.",
+      "Your one-time buy-back has been used.",
     );
-  } else if (pot.buy_back_status === "expired") {
-    addText(buyBack, "strong", "Buy-back expired");
+  } else if (pot.buy_back_status === "revoked") {
+    addText(buyBack, "strong", "Buy-back revoked");
     addText(
       buyBack,
       "p",
-      "The next gameweek began before a claim was submitted.",
+      "Your buy-back remains used. Contact the administrator if you need help.",
     );
+  } else if (pot.buy_back_status === "window_closed") {
+    addText(buyBack, "strong", "Buy-back window closed");
+  } else if (pot.player_status === "eliminated" && pot.buy_back_status !== "available") {
+    addText(buyBack, "strong", "Buy-back already used — you are eliminated.");
   }
   const gameweeks = document.createElement("section");
   gameweeks.className = "pot-gameweeks";

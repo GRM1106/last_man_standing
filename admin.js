@@ -312,23 +312,24 @@ function addBuyBackControls(pots, members) {
         note.textContent = `${member.player_status} · buy-back ${member.buy_back_status}`;
         details.append(note);
       }
-      if (member.buy_back_status !== "claimed") return;
+      if (!["requested", "confirmed"].includes(member.buy_back_status)) return;
       const controls = document.createElement("div");
       controls.className = "pot-member-controls";
       if (existing) controls.append(existing);
       const approve = document.createElement("button");
       approve.type = "button";
       approve.className = "fill-weeks-button";
-      approve.textContent = `Confirm ${money(pot.buy_back_fee_pence)} buy-back`;
+      approve.textContent = `Confirm ${money(pot.buy_back_fee_pence)} payment`;
+      approve.disabled = member.buy_back_status === "confirmed";
       approve.addEventListener("click", () =>
         setBuyBack(pot.id, member.player_id, true, approve),
       );
       const reject = document.createElement("button");
       reject.type = "button";
       reject.className = "fill-weeks-button";
-      reject.textContent = "Reject claim";
+      reject.textContent = "Revoke buy-back";
       reject.addEventListener("click", () =>
-        setBuyBack(pot.id, member.player_id, false, reject),
+        revokeBuyBack(pot.id, member.player_id, reject),
       );
       controls.append(approve, reject);
       row.append(controls);
@@ -480,7 +481,7 @@ async function loadPots() {
     supabase.from("pot_gameweeks").select("pot_id,gameweek_number"),
     supabase
       .from("pot_players")
-      .select("pot_id,player_id,payment_status,player_status,buy_back_status"),
+      .select("pot_id,player_id,payment_status,player_status,buy_back_status,buy_back_payment_status,buy_back_claimed_at,buy_back_request_deadline"),
   ]);
   const error = potsResult.error || weeksResult.error || membersResult.error;
   if (error) {
@@ -559,6 +560,24 @@ async function setBuyBack(potId, playerId, approved, button) {
   message.textContent = approved
     ? "Buy-back confirmed. The player is active again."
     : "Buy-back claim rejected.";
+  await loadPots();
+}
+async function revokeBuyBack(potId, playerId, button) {
+  const reason = window.prompt("Reason for revoking this buy-back (required):");
+  if (!reason) return;
+  button.disabled = true;
+  message.textContent = "Revoking the buy-back…";
+  const { error } = await supabase.rpc("revoke_buy_back", {
+    selected_pot_id: potId,
+    selected_player_id: playerId,
+    revoke_reason: reason,
+  });
+  if (error) {
+    message.textContent = error.message;
+    button.disabled = false;
+    return;
+  }
+  message.textContent = "Buy-back revoked and audit history recorded.";
   await loadPots();
 }
 async function addPlayerToPot(potId, select, button) {
