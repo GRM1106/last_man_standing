@@ -58,12 +58,14 @@ Apply the SQL modules in this exact order:
 22. `supabase/player_team_availability.sql`
 23. `supabase/result_provenance_foundation.sql`
 24. `supabase/result_corrections.sql`
+25. `supabase/migrations/20260823000100_lms_integrity_phase_1.sql`
 
 Module 23 is the forward-only Phase P1 foundation. Module 24 is the forward-only
 Phase P2 controlled-correction layer. Read [`DOMAIN_PHASE_P1.md`](DOMAIN_PHASE_P1.md)
-and [`DOMAIN_PHASE_P2.md`](DOMAIN_PHASE_P2.md) before using them. P2 is committed
-on `domain/phase-p2`, deployed and schema/security verified on isolated staging,
-and not merged into `main`. It is not approved or applied to production. Its
+and [`DOMAIN_PHASE_P2.md`](DOMAIN_PHASE_P2.md) before using them. P2 is merged into
+`main` through commit `d09613e` and was deployed and schema/security verified on
+isolated staging. Production deployment remains unverified and was not approved
+by the recorded P2 work. Its
 `supabase/result_corrections_verification.sql` companion is rollback-only and is
 intended only for a disposable/local Supabase database.
 
@@ -80,7 +82,13 @@ live-tested against staging.
 Staging proves deployment, migration history, schema shape and security
 configuration. Disposable local testing proves functional behavior, finality,
 authorization, rollback, idempotency and all three concurrency races. Production
-application remains prohibited.
+evidence does not establish production deployment or approval.
+
+Module 25 is the forward-only LMS Integrity Phase 1 migration. It requires the
+effective P1 and P2 schema and deliberately refuses a second application. Verify
+the target catalog before applying it. Never re-run an older setup module to
+install a fix: historical modules contain function definitions superseded by
+later modules and can silently restore obsolete game or security behaviour.
 
 P1 database testing requires a real disposable Supabase-compatible PostgreSQL
 instance with the Supabase Auth schema, `auth.uid()`, the `anon`, `authenticated`,
@@ -118,8 +126,8 @@ failure-test script may run against staging or production.
 ### FPL synchronization
 
 FPL synchronization is safe for new or historical seasons only after the final
-P1 migration is installed. On an existing deployment, apply only the new forward
-P1 migration and verify it before the next sync. On a clean P2 test install, finish all 24
+P1 migration is installed. On an existing deployment, apply only reviewed forward
+migrations from its verified schema state. On a clean test install, finish all 25
 modules before the first sync. Do not use the administrator sync control while
 the database is between `fpl_fixture_setup.sql` and
 `result_provenance_foundation.sql`; the legacy global provider IDs can overwrite
