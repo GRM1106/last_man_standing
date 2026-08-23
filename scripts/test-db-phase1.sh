@@ -34,6 +34,7 @@ modules=(
   supabase/migrations/20260823000500_lms_phase_2d_exceptional_fixtures.sql
   supabase/migrations/20260823000600_lms_phase_2e_collective_reinstatement.sql
   supabase/migrations/20260823000700_lms_phase_2f_buyback_lifecycle.sql
+  supabase/migrations/20260823000800_lms_phase_2g_gw38_winners.sql
 )
 
 cleanup() {
@@ -72,5 +73,7 @@ docker exec -i "$container_name" psql -v ON_ERROR_STOP=1 -q -U postgres -d postg
   < supabase/verification/lms_phase_2e_verification.sql
 docker exec -i "$container_name" psql -v ON_ERROR_STOP=1 -q -U postgres -d postgres \
   < supabase/verification/lms_phase_2f_verification.sql
+docker exec -i "$container_name" psql -v ON_ERROR_STOP=1 -q -U postgres -d postgres \
+  < supabase/verification/lms_phase_2g_verification.sql
 
-echo "LMS Integrity Phase 1 and Phases 2A-2F database verification passed."
+echo "LMS Integrity Phase 1 and Phases 2A-2G database verification passed."
