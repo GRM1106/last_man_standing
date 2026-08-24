@@ -1,0 +1,7 @@
+# Phase 2I — Automation Foundation
+
+Previously, administrators separately moved lifecycle state, assigned missed picks, previewed readiness, processed rounds, and triggered the Phase 2E/2G consequences. `run_lms_pot_automation` now composes those existing authoritative functions: it respects the permanent deadline, locks the pot/round, assigns only safe existing candidates, waits without error for unfinished football, processes ready outcomes, and lets collective reinstatement or GW38 completion occur in their owning engine.
+
+Every invocation writes an `lms_automation_runs` attempt under a stable pot/round operation key. Sporting effects retain their existing unique constraints and idempotency; the runner additionally serializes on `(pot,-9)` before using the established inner locks. Lock order is automation pot lock, round/deadline row, random-assignment round lock, processing/reinstatement/GW38 locks. Correction and review resolution never acquire the automation lock and therefore cannot invert this order.
+
+Open Phase 2H cases block progression. Unfinished matches are a non-error wait; missing safe random candidates open/reuse governed review; invariant failures are classified separately. `scan_lms_automation` contains each pot failure. FPL fetching remains outside this layer: a future scheduler must fetch and submit provider data through the existing ingestion boundary before invoking the scan. No scheduler or notification service is deployed.
