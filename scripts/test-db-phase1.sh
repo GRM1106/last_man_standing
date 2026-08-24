@@ -36,6 +36,7 @@ modules=(
   supabase/migrations/20260823000700_lms_phase_2f_buyback_lifecycle.sql
   supabase/migrations/20260823000800_lms_phase_2g_gw38_winners.sql
   supabase/migrations/20260824000100_lms_phase_2h_governed_review.sql
+  supabase/migrations/20260824000200_lms_phase_2i_automation.sql
 )
 
 cleanup() {
@@ -78,5 +79,15 @@ docker exec -i "$container_name" psql -v ON_ERROR_STOP=1 -q -U postgres -d postg
   < supabase/verification/lms_phase_2g_verification.sql
 docker exec -i "$container_name" psql -v ON_ERROR_STOP=1 -q -U postgres -d postgres \
   < supabase/verification/lms_phase_2h_verification.sql
+docker exec -i "$container_name" psql -v ON_ERROR_STOP=1 -q -U postgres -d postgres \
+  < supabase/verification/lms_phase_2i_verification.sql
+docker exec -i "$container_name" psql -v ON_ERROR_STOP=1 -q -U postgres -d postgres \
+  < supabase/verification/lms_phase_2i_concurrency_seed.sql
+race_sql="select set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000003001',false);select public.run_lms_pot_automation('00000000-0000-0000-0000-000000012201');"
+docker exec "$container_name" psql -v ON_ERROR_STOP=1 -q -U postgres -d postgres -c "$race_sql" >/dev/null & race_one=$!
+docker exec "$container_name" psql -v ON_ERROR_STOP=1 -q -U postgres -d postgres -c "$race_sql" >/dev/null & race_two=$!
+wait "$race_one"; wait "$race_two"
+docker exec -i "$container_name" psql -v ON_ERROR_STOP=1 -q -U postgres -d postgres \
+  < supabase/verification/lms_phase_2i_concurrency_verify.sql
 
-echo "LMS Integrity Phase 1 and Phases 2A-2H database verification passed."
+echo "LMS Integrity Phase 1 and Phases 2A-2I database verification plus two-session race passed."
