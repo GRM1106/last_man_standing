@@ -460,8 +460,10 @@ function addTournamentControls(pots, members) {
     const completion=document.createElement("div"); completion.className="completion-summary"; card.prepend(completion); loadAdminCompletion(pot,completion);
     card.prepend(bar);
     const reviews=document.createElement("section");reviews.className="admin-review-panel";card.prepend(reviews);loadAdminReviews(pot,reviews);
+    const automation=document.createElement("section");automation.className="automation-panel";card.prepend(automation);loadAutomationStatus(pot,automation);
   });
 }
+async function loadAutomationStatus(pot,panel){const {data,error}=await supabase.rpc("get_lms_automation_status",{selected_pot_id:pot.id});if(error){panel.textContent="Automation status unavailable.";return;}addText(panel,"strong",`Operations · ${data.blocked_by_review?"Blocked by review":data.last_run?.result?.state?.replaceAll("_"," ")||"Ready"}`);if(data.current_gameweek)addText(panel,"p",`Current round: GW${data.current_gameweek}`);if(data.last_run)addText(panel,"small",`Last run: ${data.last_run.status}${data.last_run.safe_error?` · ${data.last_run.safe_error}`:""}`);const run=addText(panel,"button","Run automation now","fill-weeks-button");run.type="button";run.addEventListener("click",async()=>{run.disabled=true;message.textContent="Running safe competition automation…";const result=await supabase.rpc("run_lms_pot_automation",{selected_pot_id:pot.id});run.disabled=false;if(result.error){message.textContent=result.error.message;return;}message.textContent=`Automation ${result.data.status}.`;await loadPots();});}
 async function loadAdminReviews(pot,panel){
   const {data,error}=await supabase.rpc("get_my_pot_review_state",{selected_pot_id:pot.id});
   if(error||!data?.under_review){panel.remove();return;} addText(panel,"h3",`Governed review · ${data.open_count} open`);
