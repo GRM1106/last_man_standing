@@ -31,6 +31,7 @@ const loading = document.querySelector("#admin-loading"),
   potPlayerOptions = document.querySelector("#pot-player-options"),
   potList = document.querySelector("#pot-list"),
   syncFplButton = document.querySelector("#sync-fpl"),
+  operationsHealth = document.querySelector("#operations-health"),
   fixtureList = document.querySelector("#fixture-list"),
   fixtureSyncDetail = document.querySelector("#fixture-sync-detail"),
   fixtureGameweekFilter = document.querySelector("#fixture-gameweek-filter"),
@@ -682,6 +683,7 @@ async function completePot(pot, winnerId, button) {
 }
 async function loadFixtures() {
   message.textContent = "Loading fixtures…";
+  await loadOperationsHealth();
   const { fixtures, errorMessage } = await loadAdminFixtureResults(supabase, CURRENT_SEASON);
   if (errorMessage) {
     message.textContent = errorMessage;
@@ -807,27 +809,36 @@ async function confirmFixtureCorrection() {
 }
 async function syncFplData() {
   syncFplButton.disabled = true;
-  message.textContent = "Downloading the latest FPL clubs and fixtures…";
+  message.textContent = "Running the validated football data pipeline…";
   try {
-    const fplResponse = await fetch("/api/fpl");
-    const fpl = await fplResponse.json();
-    if (!fplResponse.ok)
-      throw new Error(
-        fpl.error || "The FPL feed did not respond. Try again shortly.",
-      );
-    const { data, error } = await supabase.rpc("sync_fpl_data", {
-      selected_season: CURRENT_SEASON,
-      fpl_teams: fpl.teams,
-      fpl_fixtures: fpl.fixtures,
+    const { data, error } = await supabase.functions.invoke("lms-scheduler", {
+      body: { source: "admin", season: CURRENT_SEASON },
     });
     if (error) throw error;
-    message.textContent = `FPL sync complete: ${data.teams} clubs and ${data.fixtures} fixtures updated.`;
+    message.textContent = data?.status === "skipped"
+      ? "Sync skipped safely because another provider run is active."
+      : `Football data sync complete: ${data.ingestion?.teams || 0} clubs and ${data.ingestion?.fixtures || 0} fixtures updated; automation scan finished.`;
     await loadFixtures();
   } catch (error) {
     message.textContent = `Couldn’t sync FPL data: ${error.message}`;
   } finally {
     syncFplButton.disabled = false;
   }
+}
+
+const healthTime = (value) => value ? new Date(value).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) : "Never";
+const healthAge = (seconds) => seconds == null ? "No valid sync yet" : seconds < 120 ? "Just now" : seconds < 7200 ? `${Math.floor(seconds / 60)} minutes` : `${Math.floor(seconds / 3600)} hours`;
+async function loadOperationsHealth() {
+  const { data, error } = await supabase.rpc("get_lms_operations_health");
+  operationsHealth.replaceChildren();
+  if (error || !data) { addText(operationsHealth, "p", "Operational health is unavailable.", "sync-detail"); return; }
+  const cards = [
+    ["Football data", data.freshness, `Last sync: ${healthTime(data.last_success_at)} · Age: ${healthAge(data.data_age_seconds)}`],
+    ["Automation", data.automation_summary?.failed ? "attention" : "ready", `Last scan: ${healthTime(data.automation_summary?.last_scan)} · ${data.automation_summary?.processed || 0} processed · ${data.automation_summary?.waiting || 0} waiting · ${data.automation_summary?.blocked || 0} blocked · ${data.automation_summary?.failed || 0} failed`],
+    ["Scheduler", data.scheduler_state?.replaceAll("_", " ") || "not deployed", `Provider automation ${data.provider_automation_enabled ? "enabled" : "disabled"} · Competition scan ${data.competition_automation_enabled ? "enabled" : "disabled"}`]
+  ];
+  cards.forEach(([title, status, detail]) => { const card=document.createElement("article");addText(card,"small",title,"label");addText(card,"strong",status,`health-status ${status}`);addText(card,"p",detail);operationsHealth.append(card); });
+  if (data.last_error) addText(operationsHealth, "p", data.last_error, "operations-warning");
 }
 function renderAdminPicks(data) {
   adminPickList.replaceChildren();

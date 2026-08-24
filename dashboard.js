@@ -612,6 +612,8 @@ async function loadDashboard() {
   }
   loading.hidden = true;
   content.hidden = false;
+  const { data: providerNotice } = await supabase.rpc("get_player_provider_notice");
+  if (providerNotice) message.textContent = providerNotice;
   greeting.textContent = "Last Man Standing 26/27 Pots";
   potCount.textContent = `${data.pots.length} pot${data.pots.length === 1 ? "" : "s"}`;
   potsContainer.replaceChildren();

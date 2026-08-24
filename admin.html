@@ -20,7 +20,8 @@
     <div id="pot-list" class="pot-list"></div>
   </div>
   <div id="fixtures-view" hidden>
-    <div class="pot-toolbar"><div><p class="label">FANTASY PREMIER LEAGUE</p><h2>Football data</h2><p class="field-help">Import clubs, emblems, gameweeks, kickoff times and results from the free FPL feed.</p></div><button id="sync-fpl" class="primary-button" type="button">Sync FPL data</button></div>
+    <div class="pot-toolbar"><div><p class="label">FANTASY PREMIER LEAGUE</p><h2>Football data</h2><p class="field-help">Validated, authoritative football facts and safe competition orchestration.</p></div><button id="sync-fpl" class="primary-button" type="button">Sync football data now</button></div>
+    <section id="operations-health" class="operations-health" aria-live="polite"><p class="sync-detail">Loading operational health…</p></section>
     <p id="fixture-sync-detail" class="sync-detail">Run 09 — FPL clubs and fixture import in Supabase before syncing for the first time.</p>
     <div class="fixture-filters"><label>Gameweek<select id="fixture-gameweek-filter"><option value="">All gameweeks</option></select></label><label>Search<input id="fixture-search" type="search" placeholder="Club name"></label></div>
     <div id="fixture-list" class="fixture-list"></div>
