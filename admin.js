@@ -459,7 +459,18 @@ function addTournamentControls(pots, members) {
     }
     const completion=document.createElement("div"); completion.className="completion-summary"; card.prepend(completion); loadAdminCompletion(pot,completion);
     card.prepend(bar);
+    const reviews=document.createElement("section");reviews.className="admin-review-panel";card.prepend(reviews);loadAdminReviews(pot,reviews);
   });
+}
+async function loadAdminReviews(pot,panel){
+  const {data,error}=await supabase.rpc("get_my_pot_review_state",{selected_pot_id:pot.id});
+  if(error||!data?.under_review){panel.remove();return;} addText(panel,"h3",`Governed review · ${data.open_count} open`);
+  (data.cases||[]).filter(item=>item.status==="open").forEach(item=>{const row=document.createElement("article");addText(row,"strong",item.type.replaceAll("_"," "));addText(row,"p",item.summary);addText(row,"small",`Opened ${new Date(item.opened_at).toLocaleString("en-GB")}`);const resolve=addText(row,"button","Preview resolution","fill-weeks-button");resolve.type="button";resolve.addEventListener("click",()=>previewReviewResolution(item,row,resolve));row.append(resolve);panel.append(row);});
+}
+async function previewReviewResolution(review,row,button){
+ button.disabled=true;const {data,error}=await supabase.rpc("preview_lms_review_resolution",{selected_case_id:review.id,selected_action:"confirm_existing",selected_player_ids:null});button.disabled=false;if(error){message.textContent=error.message;return;}
+ const reason=window.prompt("Resolution reason (required):");if(!reason)return;const result=await supabase.rpc("resolve_lms_review_case",{selected_case_id:review.id,selected_action:"confirm_existing",resolution_reason:reason,expected_version_token:data.version_token,selected_player_ids:null});
+ if(result.error){message.textContent=result.error.message.includes("Review state changed")?"Review state changed; preview again.":result.error.message;return;}message.textContent="Review resolved with an append-only decision record.";await loadPots();
 }
 async function loadAdminCompletion(pot,panel){
   const {data,error}=await supabase.rpc("get_pot_completion",{selected_pot_id:pot.id});

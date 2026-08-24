@@ -389,6 +389,7 @@ function renderPot(pot) {
   summary.className = "dashboard-summary compact";
   const completion = document.createElement("section");
   completion.className = "completion-summary";
+  const review = document.createElement("section"); review.className="review-banner";
   [
     ["Player status", titleCase(pot.player_status)],
     ["Buy-back", titleCase(pot.buy_back_status)],
@@ -519,7 +520,7 @@ function renderPot(pot) {
     link.textContent = label;
     quickNav.append(link);
   });
-  card.append(header, quickNav, summary, completion, payment);
+  card.append(header, quickNav, summary, review, completion, payment);
   if (buyBack.childElementCount) card.append(buyBack);
   card.append(gameweeks, selection, history, standings);
   potsContainer.append(card);
@@ -527,6 +528,13 @@ function renderPot(pot) {
   loadPickHistory(pot, history);
   loadPlayerStandings(pot, standings);
   loadPotCompletion(pot, completion);
+  loadPlayerReviewState(pot,review);
+}
+async function loadPlayerReviewState(pot,panel){
+  const {data,error}=await supabase.rpc("get_my_pot_review_state",{selected_pot_id:pot.id});
+  if(error||!data?.under_review){panel.remove();return;}
+  addText(panel,"strong","Competition under review");
+  addText(panel,"p","This pot is under review because a match result or competition decision changed. Picks and history remain safe while the organiser resolves it.");
 }
 async function loadPotCompletion(pot, panel) {
   const { data, error } = await supabase.rpc("get_pot_completion", { selected_pot_id: pot.id });
