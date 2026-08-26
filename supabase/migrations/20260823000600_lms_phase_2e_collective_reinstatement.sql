@@ -10,10 +10,10 @@ create table public.round_collective_reinstatements(
  foreign key(source_round_id,pot_id) references public.pot_rounds(id,pot_id),foreign key(destination_round_id,pot_id) references public.pot_rounds(id,pot_id)
 );
 alter table public.round_collective_reinstatements enable row level security;
+revoke all on public.round_collective_reinstatements from public,anon,authenticated;
 grant select on public.round_collective_reinstatements to authenticated;
 create policy "Members can view collective reinstatements" on public.round_collective_reinstatements for select to authenticated using(
  exists(select 1 from public.pot_players m where m.pot_id=round_collective_reinstatements.pot_id and m.player_id=(select auth.uid())) or (select public.is_current_user_admin()));
-revoke insert,update,delete on public.round_collective_reinstatements from public,anon,authenticated;
 
 alter function public.process_pot_gameweek(uuid,integer,boolean) rename to process_pot_gameweek_phase2d_base;
 revoke all on function public.process_pot_gameweek_phase2d_base(uuid,integer,boolean) from public,anon,authenticated;

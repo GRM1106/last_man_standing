@@ -19,10 +19,10 @@ create table public.pot_winners(
  primary key(pot_id,player_id), unique(pot_id,share_order), foreign key(pot_id,player_id) references public.pot_players(pot_id,player_id)
 );
 alter table public.pot_completions enable row level security; alter table public.pot_winners enable row level security;
+revoke all on public.pot_completions,public.pot_winners from public,anon,authenticated;
 grant select on public.pot_completions,public.pot_winners to authenticated;
 create policy "Members see pot completion" on public.pot_completions for select to authenticated using(exists(select 1 from public.pot_players m where m.pot_id=pot_completions.pot_id and m.player_id=(select auth.uid())) or (select public.is_current_user_admin()));
 create policy "Members see pot winners" on public.pot_winners for select to authenticated using(exists(select 1 from public.pot_players m where m.pot_id=pot_winners.pot_id and m.player_id=(select auth.uid())) or (select public.is_current_user_admin()));
-revoke insert,update,delete on public.pot_completions,public.pot_winners from public,anon,authenticated;
 
 create or replace function public.prevent_completion_mutation() returns trigger language plpgsql set search_path='' as $$
 begin

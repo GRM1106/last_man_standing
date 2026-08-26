@@ -17,12 +17,12 @@ create table public.pot_adjudicated_winners(
  adjudication_id uuid not null references public.pot_completion_adjudications(id),player_id uuid not null references public.profiles(id),prize_share_pence integer not null check(prize_share_pence>=0),share_order integer not null check(share_order>0),primary key(adjudication_id,player_id),unique(adjudication_id,share_order)
 );
 alter table public.lms_review_cases enable row level security;alter table public.lms_review_resolution_events enable row level security;alter table public.pot_completion_adjudications enable row level security;alter table public.pot_adjudicated_winners enable row level security;
+revoke all on public.lms_review_cases,public.lms_review_resolution_events,public.pot_completion_adjudications,public.pot_adjudicated_winners from public,anon,authenticated;
 grant select on public.lms_review_cases,public.lms_review_resolution_events,public.pot_completion_adjudications,public.pot_adjudicated_winners to authenticated;
 create policy "Members see review summaries" on public.lms_review_cases for select to authenticated using(exists(select 1 from public.pot_players m where m.pot_id=lms_review_cases.pot_id and m.player_id=(select auth.uid())) or (select public.is_current_user_admin()));
 create policy "Admins see review decisions" on public.lms_review_resolution_events for select to authenticated using((select public.is_current_user_admin()));
 create policy "Members see completion adjudications" on public.pot_completion_adjudications for select to authenticated using(exists(select 1 from public.pot_players m where m.pot_id=pot_completion_adjudications.pot_id and m.player_id=(select auth.uid())) or (select public.is_current_user_admin()));
 create policy "Members see adjudicated winners" on public.pot_adjudicated_winners for select to authenticated using(exists(select 1 from public.pot_completion_adjudications a join public.pot_players m on m.pot_id=a.pot_id where a.id=pot_adjudicated_winners.adjudication_id and m.player_id=(select auth.uid())) or (select public.is_current_user_admin()));
-revoke insert,update,delete on public.lms_review_cases,public.lms_review_resolution_events,public.pot_completion_adjudications,public.pot_adjudicated_winners from public,anon,authenticated;
 
 create or replace function public.open_lms_review_case(selected_pot_id uuid,selected_case_type text,selected_summary text,selected_round_id uuid default null,selected_fixture_id bigint default null,selected_pick_id bigint default null,selected_player_id uuid default null,selected_evidence jsonb default '{}',selected_source text default 'system') returns uuid language plpgsql security definer set search_path='' as $$
 declare created_id uuid;impact jsonb;

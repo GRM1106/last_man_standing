@@ -52,10 +52,10 @@ create trigger player_picks_link_team_cycle before insert on public.player_picks
 revoke all on function public.link_pick_to_team_cycle() from public,anon,authenticated;
 
 alter table public.pot_player_team_cycles enable row level security;
+revoke all on public.pot_player_team_cycles from public,anon,authenticated;
 grant select on public.pot_player_team_cycles to authenticated;
 create policy "Players can view their team cycles" on public.pot_player_team_cycles for select to authenticated
 using(player_id=(select auth.uid()) or (select public.is_current_user_admin()));
-revoke insert,update,delete on public.pot_player_team_cycles from public,anon,authenticated;
 
 do $$ declare definition text; original text; begin
  definition:=pg_get_functiondef('public.confirm_team_pick(uuid,bigint,bigint)'::regprocedure); original:=definition;

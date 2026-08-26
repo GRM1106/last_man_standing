@@ -55,9 +55,9 @@ create table public.lms_provider_runs(
 create unique index lms_provider_one_running on public.lms_provider_runs((status)) where status='running';
 create index lms_provider_runs_recent on public.lms_provider_runs(started_at desc);
 alter table public.lms_provider_runs enable row level security;
+revoke all on public.lms_provider_runs from public,anon,authenticated;
 grant select on public.lms_provider_runs to authenticated;
 create policy "Admins see provider runs" on public.lms_provider_runs for select to authenticated using((select public.is_current_user_admin()));
-revoke insert,update,delete on public.lms_provider_runs from public,anon,authenticated;
 
 create or replace function public.is_current_user_admin() returns boolean language sql stable security definer set search_path='' as $$
   select coalesce((select auth.role())='service_role' or (select p.is_admin from public.profiles p where p.id=(select auth.uid())),false)

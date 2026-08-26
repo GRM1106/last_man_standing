@@ -46,10 +46,10 @@ create table public.pot_player_buyback_events(
 create unique index pot_player_buyback_one_consumption on public.pot_player_buyback_events(pot_id,player_id)
  where event_type in('legacy_requested','legacy_confirmed','requested');
 alter table public.pot_player_buyback_events enable row level security;
+revoke all on public.pot_player_buyback_events from public,anon,authenticated;
 grant select on public.pot_player_buyback_events to authenticated;
 create policy "Players see own buy-back events" on public.pot_player_buyback_events for select to authenticated
  using(player_id=(select auth.uid()) or (select public.is_current_user_admin()));
-revoke insert,update,delete on public.pot_player_buyback_events from public,anon,authenticated;
 
 insert into public.pot_player_buyback_events(pot_id,player_id,event_type,actor_id,occurred_at,metadata)
 select pot_id,player_id,case buy_back_status when 'requested' then 'legacy_requested' else 'legacy_confirmed' end,

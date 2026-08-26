@@ -5,9 +5,10 @@ create table public.lms_automation_runs(
  id uuid primary key default gen_random_uuid(),operation_key text not null,attempt integer not null check(attempt>0),job_type text not null check(job_type in('pot_automation','global_scan')),pot_id uuid references public.pots(id),round_id uuid references public.pot_rounds(id),gameweek_number integer check(gameweek_number between 1 and 38),status text not null check(status in('running','succeeded','blocked','failed','skipped')),source text not null check(source in('system','admin')),actor_id uuid references public.profiles(id),started_at timestamptz not null default clock_timestamp(),finished_at timestamptz,result_summary jsonb not null default '{}',error_class text check(error_class in('waiting','review','retryable','invariant')),safe_error text,unique(operation_key,attempt)
 );
 create index lms_automation_runs_recent on public.lms_automation_runs(pot_id,started_at desc);
-alter table public.lms_automation_runs enable row level security;grant select on public.lms_automation_runs to authenticated;
+alter table public.lms_automation_runs enable row level security;
+revoke all on public.lms_automation_runs from public,anon,authenticated;
+grant select on public.lms_automation_runs to authenticated;
 create policy "Admins see automation runs" on public.lms_automation_runs for select to authenticated using((select public.is_current_user_admin()));
-revoke insert,update,delete on public.lms_automation_runs from public,anon,authenticated;
 create or replace function public.prevent_automation_run_mutation() returns trigger language plpgsql set search_path='' as $$ begin if tg_op='UPDATE' and old.status='running' and new.status in('succeeded','blocked','failed','skipped') then return new;end if;if tg_op='DELETE' and exists(select 1 from public.pots where id=old.pot_id and status='draft' and test_mode) then return old;end if;raise exception 'Automation run history is append-only';end $$;
 create trigger lms_automation_runs_append_only before update or delete on public.lms_automation_runs for each row execute function public.prevent_automation_run_mutation();revoke all on function public.prevent_automation_run_mutation() from public,anon,authenticated;
 

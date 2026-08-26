@@ -102,12 +102,12 @@ create trigger pot_gameweek_processes_link_lms_round before insert on public.pot
 revoke all on function public.link_process_to_lms_round() from public,anon,authenticated;
 
 alter table public.pot_rounds enable row level security; alter table public.pot_round_players enable row level security;
+revoke all on public.pot_rounds,public.pot_round_players from public,anon,authenticated;
 grant select on public.pot_rounds,public.pot_round_players to authenticated;
 create policy "Members can view pot rounds" on public.pot_rounds for select to authenticated using(
   exists(select 1 from public.pot_players m where m.pot_id=pot_rounds.pot_id and m.player_id=(select auth.uid())) or (select public.is_current_user_admin()));
 create policy "Members can view their round entries" on public.pot_round_players for select to authenticated using(
   player_id=(select auth.uid()) or (select public.is_current_user_admin()));
-revoke insert,update,delete on public.pot_rounds,public.pot_round_players from public,anon,authenticated;
 
 create or replace function public.get_pot_rounds(selected_pot_id uuid) returns jsonb language sql stable security definer set search_path='' as $$
 select case when exists(select 1 from public.pot_players where pot_id=selected_pot_id and player_id=(select auth.uid())) or (select public.is_current_user_admin())
