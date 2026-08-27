@@ -72,7 +72,7 @@ begin
   return new;
 end;
 $$;
-revoke all on function public.set_initial_pot_gameweek_deadline() from public;
+revoke all on function public.set_initial_pot_gameweek_deadline() from public,anon,authenticated;
 
 create trigger pot_gameweeks_initial_deadline
 before insert on public.pot_gameweeks
@@ -100,7 +100,7 @@ begin
   where gameweek.pot_id=calculated.pot_id and gameweek.gameweek_number=calculated.gameweek_number;
 end;
 $$;
-revoke all on function public.refresh_open_pot_gameweek_deadlines(text) from public;
+revoke all on function public.refresh_open_pot_gameweek_deadlines(text) from public,anon,authenticated;
 
 create or replace function public.current_pot_gameweek(selected_pot_id uuid)
 returns integer language sql stable security definer set search_path='' as $$
@@ -119,7 +119,7 @@ returns integer language sql stable security definer set search_path='' as $$
         and fixture.gameweek_number=gameweek.gameweek_number
     );
 $$;
-revoke all on function public.current_pot_gameweek(uuid) from public;
+revoke all on function public.current_pot_gameweek(uuid) from public,anon,authenticated;
 
 create or replace function public.get_gameweek_deadline(selected_pot_id uuid,selected_gameweek integer)
 returns jsonb language plpgsql stable security definer set search_path='' as $$
@@ -135,7 +135,7 @@ begin
     'test_mode',test_enabled,'permanently_closed',deadline is not null and now()>=deadline);
 end;
 $$;
-revoke all on function public.get_gameweek_deadline(uuid,integer) from public;
+revoke all on function public.get_gameweek_deadline(uuid,integer) from public,anon,authenticated;
 grant execute on function public.get_gameweek_deadline(uuid,integer) to authenticated;
 
 create or replace function public.confirm_team_pick(selected_pot_id uuid,selected_fixture_id bigint,selected_team_id bigint)
@@ -197,7 +197,7 @@ begin
   );
 end;
 $$;
-revoke all on function public.confirm_team_pick(uuid,bigint,bigint) from public;
+revoke all on function public.confirm_team_pick(uuid,bigint,bigint) from public,anon,authenticated;
 grant execute on function public.confirm_team_pick(uuid,bigint,bigint) to authenticated;
 
 create or replace function public.assign_random_missing_picks(selected_pot_id uuid,selected_gameweek integer,apply_changes boolean default false)
@@ -292,7 +292,7 @@ begin
     'deadline',deadline,'problems','[]'::jsonb);
 end;
 $$;
-revoke all on function public.assign_random_missing_picks(uuid,integer,boolean) from public;
+revoke all on function public.assign_random_missing_picks(uuid,integer,boolean) from public,anon,authenticated;
 grant execute on function public.assign_random_missing_picks(uuid,integer,boolean) to authenticated;
 
 create or replace function public.reset_test_gameweek(selected_pot_id uuid,selected_gameweek integer)
@@ -317,7 +317,7 @@ begin
   delete from public.player_picks where pot_id=selected_pot_id and gameweek_number=selected_gameweek;
 end;
 $$;
-revoke all on function public.reset_test_gameweek(uuid,integer) from public;
+revoke all on function public.reset_test_gameweek(uuid,integer) from public,anon,authenticated;
 grant execute on function public.reset_test_gameweek(uuid,integer) to authenticated;
 
 create or replace function public.set_pot_test_mode(selected_pot_id uuid,enabled boolean)
@@ -337,7 +337,7 @@ begin
   update public.pots set test_mode=enabled where id=selected_pot_id;
 end;
 $$;
-revoke all on function public.set_pot_test_mode(uuid,boolean) from public;
+revoke all on function public.set_pot_test_mode(uuid,boolean) from public,anon,authenticated;
 grant execute on function public.set_pot_test_mode(uuid,boolean) to authenticated;
 
 create or replace function public.complete_pot_with_winner(selected_pot_id uuid,selected_winner_id uuid)
@@ -367,7 +367,7 @@ begin
   update public.pots set status='complete',test_mode=false where id=selected_pot_id;
 end;
 $$;
-revoke all on function public.complete_pot_with_winner(uuid,uuid) from public;
+revoke all on function public.complete_pot_with_winner(uuid,uuid) from public,anon,authenticated;
 grant execute on function public.complete_pot_with_winner(uuid,uuid) to authenticated;
 
 alter function public.sync_fpl_data(text,jsonb,jsonb) rename to sync_fpl_data_p2_base;
@@ -417,7 +417,7 @@ begin
   return result;
 end;
 $$;
-revoke all on function public.sync_fpl_data(text,jsonb,jsonb) from public;
+revoke all on function public.sync_fpl_data(text,jsonb,jsonb) from public,anon,authenticated;
 grant execute on function public.sync_fpl_data(text,jsonb,jsonb) to authenticated;
 
 alter function public.process_pot_gameweek(uuid,integer,boolean) rename to process_pot_gameweek_p2_base;
@@ -442,7 +442,7 @@ begin
   return public.process_pot_gameweek_p2_base(selected_pot_id,selected_gameweek,apply_changes);
 end;
 $$;
-revoke all on function public.process_pot_gameweek(uuid,integer,boolean) from public;
+revoke all on function public.process_pot_gameweek(uuid,integer,boolean) from public,anon,authenticated;
 grant execute on function public.process_pot_gameweek(uuid,integer,boolean) to authenticated;
 
 commit;

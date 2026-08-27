@@ -263,7 +263,9 @@ do $$ begin
   if has_function_privilege('anon','public.current_pot_gameweek(uuid)','EXECUTE')
     or has_function_privilege('authenticated','public.current_pot_gameweek(uuid)','EXECUTE')
     or has_function_privilege('anon','public.refresh_open_pot_gameweek_deadlines(text)','EXECUTE')
-    or has_function_privilege('authenticated','public.refresh_open_pot_gameweek_deadlines(text)','EXECUTE') then
+    or has_function_privilege('authenticated','public.refresh_open_pot_gameweek_deadlines(text)','EXECUTE')
+    or has_function_privilege('anon','public.set_initial_pot_gameweek_deadline()','EXECUTE')
+    or has_function_privilege('authenticated','public.set_initial_pot_gameweek_deadline()','EXECUTE') then
     raise exception 'An internal Phase 1 helper is executable by a client role';
   end if;
   if not exists(select 1 from pg_trigger where tgrelid='public.player_picks'::regclass
