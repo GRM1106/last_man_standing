@@ -512,6 +512,64 @@ operator approval. Three directories now coexist under the durable root; Step 4'
 equality guard accepts only `lms-staging-backup.VEgLt7`, so neither invalid directory can be
 selected by accident.
 
+### 2L. Third Step 4 destination — ATTEMPTED, FAILED
+
+| Field | Value |
+|---|---|
+| Directory | `/Users/grantmiller/Documents/LMS-Backups/lms-staging-backup.VEgLt7` |
+| Start time (UTC) | 2026-08-27T20:21:45Z |
+| Result | **FAILED**, during the first roles dump |
+| Sanitized cause | database-password authentication failure |
+| Shell exit status | **not captured — see below** |
+| Completion time / duration / checksums / RPO | **none exist** |
+
+**No shell-status variable was captured.** The explicit `BACKUP_STATUS=$?` assignment did not
+execute, so there is no recorded value for it and none is inferred here. What is known is that
+**the dump command itself reported failure**; that is the basis for the FAILED result, not a
+captured shell status. No exit status is invented to fill the gap.
+
+On-disk state, verified directly:
+
+| File | State |
+|---|---|
+| `roles.sql` | exists — **0 bytes**, permissions `600`, mtime 2026-08-27T20:22:11Z |
+| `schema.sql` | **never created** |
+| `data.sql` | **never created** |
+
+Directory permissions remain `700`, containing exactly one file. **This directory is invalid,
+retained, and must never be reused** — not as a destination, not filled in, not partially
+reused. Disposal remains subject to separate operator approval.
+
+#### Both password resets have now been rejected
+
+The manually supplied `SUPABASE_DB_PASSWORD` has been rejected after **both** staging password
+resets — the first recorded in section 2H, the second in section 2K. Two independent resets,
+each followed by an authentication failure, make "the password was typed or saved incorrectly"
+a less likely explanation than something systematic.
+
+**Further password resets and backup attempts are blocked**, pending review of whether CLI
+`2.116.0` is using Supabase **temporary database access derived from the authenticated platform
+token** rather than the supplied `SUPABASE_DB_PASSWORD`. Resetting the password again before
+that review would be aimed at a credential the tool may not be using.
+
+There is prior evidence in this document consistent with that hypothesis. Section 2D recorded
+that the generated dry-run scripts embed a `PGPASSWORD` assignment carrying a value **even
+though no password was supplied or requested on the command line**. The CLI therefore obtained
+a database credential from somewhere other than operator input. That observation was made
+before this hypothesis was formed and is recorded independently of it, but it points the same
+way and should be part of the review.
+
+This is stated as a **hypothesis to be reviewed, not a conclusion**. It has not been tested,
+and testing it is explicitly out of scope here: no token was inspected, no dry-run or database
+command was run, and no credential was examined.
+
+All three failed directories were verified untouched at the time of this record — `r1Y5AR`,
+`oM6MZf` and `VEgLt7` each hold exactly one file, `roles.sql`, 0 bytes, permissions `600`, with
+`r1Y5AR` and `oM6MZf` retaining their earlier modification times. None has been deleted.
+
+No raw error output, hostname, IP address, username, credential, or connection string is
+recorded here or anywhere in this repository.
+
 ## 3. Query 1 — phase presence + object inventory
 
 Paste result:
