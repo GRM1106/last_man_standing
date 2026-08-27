@@ -260,7 +260,56 @@ identifier; `select version()` reports the upstream PostgreSQL version. The two 
 version 17 and are consistent with one another. Step 3 was nevertheless performed through the
 runbook's own channel rather than relying on the API value.
 
-Step 4 has not been run. No dump exists and the backup directory remains empty.
+### 2G. Step 4 (take the dump) — ATTEMPTED, FAILED
+
+| Field | Value |
+|---|---|
+| Backup start (UTC) | 2026-08-27T16:46:08Z |
+| Recorded directory | `/Users/grantmiller/Documents/LMS-Backups/lms-staging-backup.r1Y5AR` |
+| Result | **FAILED** |
+| Exit status (`BACKUP_STATUS`) | `1` |
+| Failure stage | **first command — the roles dump** |
+| Sanitized cause | database password authentication failed |
+| Failure observed (UTC) | 2026-08-27T16:47:25Z — 77s after start |
+| Completion time / duration / checksums / RPO | **none produced** |
+
+`set -e` stopped execution immediately at the first failure. The schema and data dumps were
+**never invoked**.
+
+On-disk state, verified directly:
+
+| File | State |
+|---|---|
+| `roles.sql` | exists — **0 bytes**, permissions `600` |
+| `schema.sql` | **not created** |
+| `data.sql` | **not created** |
+
+Directory permissions remain `700`, containing exactly one file.
+
+**This directory is an INCOMPLETE, INVALID attempt.** It must never be reused, reused as a
+destination, or "filled in" by re-running individual dump commands: a directory assembled from
+separate attempts has no single consistent RPO. Any future backup starts in a **new**
+`mktemp -d` directory.
+
+The partial artifact is **retained**, not deleted, pending separately approved guarded
+disposal. No deletion has been performed and none is authorized by this entry.
+
+The failure-handling design behaved exactly as intended and is worth recording as validated:
+
+- `set -e` aborted at the first failing dump, so no later dump ran against a broken credential.
+- No RPO, duration, or checksum was produced, so the invalid attempt cannot be mistaken for a
+  usable backup on the strength of accompanying metadata.
+- `umask 077` made `roles.sql` owner-only (`600`) **at creation**, before any `chmod` could
+  run — confirming that a partial file is confidentiality-protected even when the success
+  branch never executes. Protection and validity remain separate: this file is protected and
+  still invalid.
+
+No database hostname, IP address, username, password, connection string, or raw error output
+is recorded here or anywhere in this repository. Only the sanitized cause above is retained.
+
+Outstanding before any retry: the credential itself must be resolved. That decision, including
+whether the staging database password should be rotated, is the operator's and has not been
+taken here. Step 4 has not been retried.
 
 ## 3. Query 1 — phase presence + object inventory
 
