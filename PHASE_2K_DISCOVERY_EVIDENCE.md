@@ -846,22 +846,35 @@ Cause — a **privilege difference between source and target**, not a corrupt or
 one, so the statement was rejected. On Supabase-managed staging the dumping role holds that
 privilege, which is why the dump contains the statement at all.
 
-#### Partial application — the local stack was modified
+#### Partial execution — CORRECTED, see section 2R
 
-**No public tables were created, but the stack is not untouched.** The three `ALTER ROLE`
-statements committed before the failure, so local role configuration now carries settings from
-the dump:
+> **The conclusion originally recorded here was wrong and is superseded by section 2R.** It
+> claimed the failed attempt contaminated the local stack. It did not establish that. The
+> original wording is replaced below rather than deleted, and the reasoning error is retained
+> as part of the record.
 
-| Role | Observed local `rolconfig` after the failed attempt |
-|---|---|
-| `anon` | `statement_timeout=3s` |
-| `authenticated` | `statement_timeout=8s` |
-| `authenticator` | `session_preload_libraries=supautils, safeupdate, statement_timeout=8s, lock_timeout=8s` |
+What is established:
 
-"Zero public base tables" is therefore **not** sufficient evidence that a stack is clean. A
-retry into this stack would not be a clean demonstration, and a pass could be an artefact of
-leftover state. The runbook has been amended to require stopping and recreating the stack before
-any retry, and to check role configuration as well as table count.
+- The three `ALTER ROLE … SET "statement_timeout"` statements **executed before the error**.
+  `psql` commits each statement in turn, and the failure came at the final `GRANT`.
+- Those statements set values that are **already present in a freshly initialised local stack**.
+- Therefore **partial execution occurred, but no observable role-configuration divergence — and
+  so no contamination — was established.**
+
+| Role | After the failed attempt | Freshly initialised stack, never restored |
+|---|---|---|
+| `anon` | `statement_timeout=3s` | `statement_timeout=3s` |
+| `authenticated` | `statement_timeout=8s` | `statement_timeout=8s` |
+| `authenticator` | `session_preload_libraries=supautils, safeupdate, statement_timeout=8s, lock_timeout=8s` | identical |
+
+The two states are indistinguishable by `rolconfig`. The original claim compared the
+post-failure state against an assumption rather than against a measured baseline.
+
+What survives the correction: **"zero public base tables" was still insufficient evidence that
+the stack was clean.** Role state also needed checking — the error was not in looking at
+`rolconfig`, but in interpreting expected defaults as contamination without first establishing
+a baseline. The runbook now checks role configuration *against a verified fresh-stack baseline*
+rather than requiring the absence of values initialisation always creates.
 
 #### State after the stop
 
@@ -912,6 +925,123 @@ Runbook amendments made alongside this correction:
 The restore has **not** been retried. Steps 7 and 8 remain outstanding, the gate remains
 `NOT READY`, and no RTO is produced from the failed window — those timings are discarded, not
 reused.
+
+**Superseded in part by section 2R:** the "partial application / contamination" finding above
+is **not supported by evidence** and is corrected there.
+
+### 2R. Retry HALTED before Step 7 — the contamination finding was wrong
+
+The corrected retry was executed as far as the cleanliness checks and **stopped there**. No
+restore file was applied. Staging and production were not contacted.
+
+#### What was done
+
+| Step | Outcome |
+|---|---|
+| Branch / tree | `feature/lms-phase-2k-staging-discovery`, clean |
+| Backup checksums re-verified | all three **MATCH** section 2O |
+| Stack stopped (`stop --no-backup`) | *"Stopped supabase local development setup."* |
+| Stack recreated (corrected Step 6, `mailpit` excluded) | exit `0` |
+| Container | `supabase_db_last_man_standing` running, **healthy**, created 2026-08-27T22:10:43Z |
+| `mailpit` exclusion | **effective** — no mail container running, and no `MAILPIT_URL`/`INBUCKET_URL` in start output. The corrected token works. |
+| `public` base tables | **0** |
+| `rolconfig` check | **did not pass as specified — see below** |
+
+#### The finding: those settings are platform defaults, not contamination
+
+Section 2Q recorded that the three `ALTER ROLE … SET "statement_timeout"` statements
+"partially applied" and left the local stack contaminated. **That conclusion was not
+evidence-based.** It compared the post-failure state against an assumption rather than against a
+fresh baseline.
+
+A stack created 90 seconds earlier, with no restore ever applied to it, shows **identical**
+values:
+
+| Role | After the failed restore | Fresh stack, before any restore |
+|---|---|---|
+| `anon` | `statement_timeout=3s` | `statement_timeout=3s` |
+| `authenticated` | `statement_timeout=8s` | `statement_timeout=8s` |
+| `authenticator` | `session_preload_libraries=supautils, safeupdate, statement_timeout=8s, lock_timeout=8s` | identical |
+
+The staging roles dump sets exactly the same values the local Supabase stack already applies at
+initialisation. The two are therefore **indistinguishable by `rolconfig`**.
+
+Corrected conclusion: the three `ALTER ROLE` statements very likely *did* execute — `psql`
+commits each statement in turn and the failure came at the final `GRANT` — but they set values
+identical to the local defaults, so **no observable modification resulted**. The stack was not
+meaningfully contaminated, and `rolconfig` cannot evidence either way.
+
+#### Why the retry stopped here
+
+The specified cleanliness check requires `anon`, `authenticated` and `authenticator` to show
+platform-default `rolconfig` "with none of the partially restored timeout settings". Those two
+conditions are the **same state**: the timeout settings *are* the platform defaults. The check
+cannot pass as written, because its premise — that the settings came from the dump — is false.
+
+The instruction was to record fresh timings and proceed only after **all** cleanliness checks
+pass. One cannot, so the retry halted before Step 7. No `RESTORE_START_UTC` was recorded, no
+restore file was applied, and no RTO exists.
+
+This was not treated as a formality to wave through: proceeding would have meant either
+recording a passed check that did not pass, or silently redefining a gate condition. Either
+would corrupt the evidence chain, and the underlying error is already committed in the
+repository.
+
+#### What still holds, and what needs a decision
+
+Unaffected: the Step 7 role-context fix. `GRANT SET ON PARAMETER "log_min_messages"` genuinely
+requires superuser, `postgres` locally is not one, and `supabase_admin` is. Running `roles.sql`
+as `supabase_admin` remains the correct fix and is independent of this correction.
+
+Also unaffected: recreating the stack before a retry is still sound practice — a failed restore
+*could* leave state behind, and rebuilding costs little. Only its stated justification
+("observed contamination") is withdrawn.
+
+#### Resolution applied
+
+Both points are now settled and the runbook and section 2Q have been amended accordingly.
+
+1. **Cleanliness check restated and now satisfiable.** It requires zero public base tables
+   **and** `anon`/`authenticated`/`authenticator` configuration matching a verified
+   fresh-stack baseline. The requirement that the timeout values be *absent* is removed.
+
+   Verified fresh-stack baseline, recorded in the runbook:
+
+   | Role | Baseline |
+   |---|---|
+   | `anon` | `statement_timeout=3s` |
+   | `authenticated` | `statement_timeout=8s` |
+   | `authenticator` | includes `statement_timeout=8s` and `lock_timeout=8s` |
+
+2. **Section 2Q corrected in place, without erasing history.** Its incorrect conclusion is
+   marked as superseded by this section, the original claim is replaced rather than deleted,
+   and the reasoning error is retained as part of the record.
+
+Preserved unchanged, because this correction does not touch them:
+
+- The failure cause: `GRANT SET ON PARAMETER "log_min_messages" TO "supabase_realtime_admin"`,
+  which requires superuser.
+- The fix: `roles.sql` runs as `supabase_admin`; `schema.sql` and `data.sql` remain under
+  `postgres`.
+- Stack recreation after a failed restore, retained as a **conservative isolation step**. Its
+  rationale is corrected: it is justified by what a failure *could* leave behind, not by
+  contamination that was observed here.
+
+#### State of the recreated stack
+
+| Item | State |
+|---|---|
+| Container | `supabase_db_last_man_standing`, created 2026-08-27T22:10:43Z, running, **healthy** |
+| `public` base tables | **0** |
+| Role configuration | matches the verified fresh-stack baseline above |
+| Restore files applied | **none** — `roles.sql`, `schema.sql` and `data.sql` have not been run |
+| `mailpit` exclusion | effective — no mail container, and no `MAILPIT_URL` in the start output |
+
+**No `RESTORE_START_UTC` or `RESTORE_START_EPOCH` was recorded for this attempt, and no RTO is
+claimed.** Timings from the aborted first attempt are discarded, not reused.
+
+Backup artifacts are unaltered, all four directories are intact, and the gate remains
+`NOT READY`. Step 7 has not been run.
 
 ## 3. Query 1 — phase presence + object inventory
 

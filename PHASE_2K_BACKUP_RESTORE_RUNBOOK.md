@@ -469,8 +469,8 @@ silently ignored and the mail container starts anyway. The container is still *n
 `supabase_inbucket_last_man_standing` for legacy reasons, which is easy to misread as the
 exclusion having failed.
 
-**Confirm the stack is clean before continuing.** A previous failed restore can leave role-level
-settings behind even when no tables were created:
+**Confirm the stack is clean before continuing.** Clean means two things: no application schema,
+**and** role configuration matching a freshly initialised local stack.
 
 ```bash
 docker exec supabase_db_last_man_standing psql -tAq -U postgres -d postgres -c \
@@ -478,12 +478,27 @@ docker exec supabase_db_last_man_standing psql -tAq -U postgres -d postgres -c \
     where n.nspname='public' and c.relkind='r';"        # expect 0
 
 docker exec supabase_db_last_man_standing psql -tAq -U postgres -d postgres -c \
-  "select rolname, rolconfig from pg_roles
-    where rolname in ('anon','authenticated','authenticator');"   # expect platform defaults only
+  "select rolname, coalesce(array_to_string(rolconfig,', '),'(none)') from pg_roles
+    where rolname in ('anon','authenticated','authenticator') order by rolname;"
 ```
 
+Compare the second result against this **verified fresh-stack baseline**, observed on a
+container created seconds earlier with no restore ever applied to it:
+
+| Role | Expected on a freshly initialised stack |
+|---|---|
+| `anon` | `statement_timeout=3s` |
+| `authenticated` | `statement_timeout=8s` |
+| `authenticator` | includes `statement_timeout=8s` and `lock_timeout=8s` (alongside `session_preload_libraries`) |
+
+> **Do not require these timeout values to be absent.** They are what local initialisation
+> always creates. The staging roles dump happens to set the *same* values, so `rolconfig` cannot
+> distinguish "dump applied" from "freshly initialised" — matching the baseline above is the
+> correct pass condition, and demanding their absence is a check that can never pass.
+
 Record `RESTORE_START_UTC` and `RESTORE_START_EPOCH` **only after** the stack is confirmed
-healthy and clean. A window opened against a contaminated stack does not measure a restore.
+healthy, free of public base tables, and matching this baseline. A window opened against a
+stack in an unknown state does not measure a restore.
 
 ## Step 7 — Restore into the local stack, in order
 
@@ -517,23 +532,35 @@ edit the dump to make it apply, and do not continue to the next stage.
 
 ### Retrying after a failed restore — recreate the stack first
 
-A failed restore can leave the local stack **partially modified even when no tables were
-created**. The first Step 7 attempt failed on the final statement of `roles.sql`, but the three
-preceding `ALTER ROLE … SET "statement_timeout"` statements had already committed, so local role
-configuration was altered.
+Recreate the stack after any failed restore. This is a **conservative isolation step**, not a
+response to observed damage.
 
-Never retry a restore into a stack that a previous attempt has touched — the result would not be
-a clean demonstration, and a passing outcome could be an artefact of leftover state. Before any
-retry:
+The rationale is precise, because an earlier version of this runbook overstated it. When the
+first Step 7 attempt failed on the final statement of `roles.sql`, the three preceding
+`ALTER ROLE … SET "statement_timeout"` statements had already committed — `psql` commits each
+statement in turn. **However**, those statements set values identical to what local
+initialisation already applies, so no observable divergence resulted. Partial execution
+occurred; contamination was **not** established.
+
+The justification for recreating is therefore what a failed restore *could* leave behind, not
+what this one demonstrably did:
+
+- A failure can occur at any point, and a later one could commit schema or data changes.
+- Some effects are not visible in the checks available here.
+- Rebuilding is cheap and removes the question entirely.
+
+A passing restore into a stack of unknown provenance is weaker evidence than one into a stack
+known to be fresh. That is the argument — not that leftover state was found.
 
 ```bash
 npx --yes supabase@2.116.0 stop --no-backup
 npx --yes supabase@2.116.0 start -x studio,imgproxy,mailpit,storage-api,edge-runtime,logflare,vector,supavisor,realtime
 ```
 
-Then re-run the Step 6 cleanliness checks — 0 public base tables **and** role configuration back
-to platform defaults — and only then record a fresh `RESTORE_START_UTC` / `RESTORE_START_EPOCH`.
-The timings from an aborted attempt are discarded, not reused: a failed window yields no RTO.
+Then re-run the Step 6 cleanliness checks — 0 public base tables **and** role configuration
+matching the verified fresh-stack baseline — and only then record a fresh `RESTORE_START_UTC` /
+`RESTORE_START_EPOCH`. The timings from an aborted attempt are discarded, not reused: a failed
+window yields no RTO.
 
 ## Step 8 — Verify the restore reproduces staging
 
