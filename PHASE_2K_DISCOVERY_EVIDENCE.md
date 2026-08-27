@@ -624,7 +624,50 @@ variable then suppressed during the real attempts.
   so the existing warnings and redaction wrapper still apply unchanged.
 
 The three retained failed directories are unaffected by this finding and remain invalid,
-retained, and awaiting separately approved disposal. No fourth destination has been created.
+retained, and awaiting separately approved disposal. A fourth destination has since been
+prepared — see section 2N.
+
+### 2N. Fourth Step 4 destination — prepared
+
+Prepared 2026-08-27. **Step 4 has not been run against it**; this section records preparation
+only. No credential was supplied, inspected, or reset, and Supabase was not contacted.
+
+| Field | Value |
+|---|---|
+| Path | `/Users/grantmiller/Documents/LMS-Backups/lms-staging-backup.Fug9iB` |
+| Created | `mktemp -d` beneath the unchanged durable root, per the runbook procedure |
+| Resolved | via `pwd -P` |
+| Permissions | `drwx------` (`700`) |
+| Contents | **empty** — 0 files |
+| Guards | direct-parent equals root; basename matches `lms-staging-backup.??????` |
+| Branch at preparation | `feature/lms-phase-2k-staging-discovery`, working tree clean |
+
+This is the new `RECORDED_BACKUP_DIR`. The runbook's two Step 4 path variables were updated to
+it; the durable root and every other command are unchanged.
+
+**This is the first destination prepared since the credential-path correction in section 2M.**
+The three previous attempts all forced the manual-password path by exporting
+`SUPABASE_DB_PASSWORD`. Step 4 no longer supplies a database password at all, so a run against
+this destination will use the automatic temporary-login path — the mechanism the earlier
+attempts suppressed. That is the substantive difference from the three failed attempts, not the
+directory itself.
+
+#### Previous attempts — all three verified unchanged
+
+Verified immediately before this directory was created, as a hard precondition:
+
+| Directory | Files | `roles.sql` | mtime (UTC) | Status |
+|---|---|---|---|---|
+| `lms-staging-backup.r1Y5AR` | 1 | 0 bytes, `600` | 2026-08-27T16:47:25Z | invalid, retained |
+| `lms-staging-backup.oM6MZf` | 1 | 0 bytes, `600` | 2026-08-27T18:19:09Z | invalid, retained |
+| `lms-staging-backup.VEgLt7` | 1 | 0 bytes, `600` | 2026-08-27T20:22:11Z | invalid, retained |
+
+Each contains only its expected `roles.sql` and no other entry. None is reused, written to, or
+deleted; disposal of all three remains subject to separate operator approval.
+
+Four directories now coexist under the durable root. Step 4's recorded-path equality guard
+accepts only `lms-staging-backup.Fug9iB`, so none of the three invalid directories can be
+selected by accident.
 
 ## 3. Query 1 — phase presence + object inventory
 
