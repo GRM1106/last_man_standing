@@ -505,24 +505,61 @@ stack in an unknown state does not measure a restore.
 Each file runs separately so a failure identifies which stage broke. `ON_ERROR_STOP=1` matches
 the convention already used throughout `scripts/test-db-phase1.sh`.
 
-> ## ⚠ `roles.sql` MUST RUN AS `supabase_admin`
+> ## ⚠ ROLE CONTEXT DIFFERS PER FILE — BOTH VERIFIED BY EXECUTION
 >
-> A platform roles dump contains statements only a superuser may execute. Specifically it ends
-> with `GRANT SET ON PARAMETER "log_min_messages" TO "supabase_realtime_admin"`. Locally,
-> `postgres` is **not** a superuser (it has `CREATEROLE` only), so that statement is rejected
-> with `permission denied for parameter log_min_messages`. `supabase_admin` **is** a superuser
-> and is the appropriate platform-administration context for the roles file.
+> **`roles.sql` → `supabase_admin`.** The platform roles dump ends with
+> `GRANT SET ON PARAMETER "log_min_messages" TO "supabase_realtime_admin"`, which only a
+> superuser may execute. Locally `postgres` is **not** a superuser (it has `CREATEROLE` only),
+> so it is rejected with `permission denied for parameter log_min_messages`.
 >
-> `schema.sql` and `data.sql` keep `-U postgres`, which is the intended application ownership
-> context. Do not change them without a separately verified reason.
+> **`schema.sql` → `postgres`.** This is the intended application ownership context and it
+> applies cleanly. Do not change it without a separately verified reason.
+>
+> **`data.sql` → `supabase_admin`.** This is **one intact logical artifact that spans three
+> schemas**: 22 `COPY` sections into `auth`, 12 into `public`, and 7 into `storage` — 41 in
+> total. The `auth` and `storage` tables are platform-owned (`storage` tables belong to
+> `supabase_storage_admin`); only the `public` tables are application-owned. Running the file as
+> `postgres` fails at the first `storage` target with
+> `permission denied for table buckets_vectors`, because `postgres` holds no `INSERT` there.
+>
+> No single non-superuser role can write to all three schemas, and the artifact is not to be
+> split. A superuser context is therefore required for the file as a whole.
+>
+> **Using `supabase_admin` for `COPY` does not alter table ownership.** `COPY … FROM` inserts
+> rows; it does not reassign owners. Verified from the artifact itself: `data.sql` contains
+> **zero** `SET SESSION AUTHORIZATION`, `SET ROLE`, `OWNER TO`, or `ALTER TABLE … OWNER`
+> statements. Ownership after the restore is whatever `schema.sql` established under
+> `postgres`, unchanged by the data load.
 
 ```bash
 C=supabase_db_last_man_standing
 
 docker exec -i "$C" psql -v ON_ERROR_STOP=1 -q -U supabase_admin -d postgres < "$BACKUP_DIR/roles.sql"
 docker exec -i "$C" psql -v ON_ERROR_STOP=1 -q -U postgres       -d postgres < "$BACKUP_DIR/schema.sql"
-docker exec -i "$C" psql -v ON_ERROR_STOP=1 -q -U postgres       -d postgres < "$BACKUP_DIR/data.sql"
+docker exec -i "$C" psql -v ON_ERROR_STOP=1 -q -U supabase_admin -d postgres < "$BACKUP_DIR/data.sql"
 ```
+
+### Security boundary — stated honestly
+
+`supabase_admin` is a **local superuser**. Two of the three restore commands run with
+unrestricted database rights, and that is a real concession, not a technicality. It is accepted
+because no lesser role can apply a cross-schema platform artifact, and because the risk is
+bounded by three specific safeguards:
+
+| Safeguard | What it bounds |
+|---|---|
+| **Disposable local stack** | The credential exists only inside a throwaway container that is destroyed and recreated between attempts. It has no reach to staging or production. |
+| **Immutable dump** | The artifact is checksum-verified before every run and never edited. What executes is exactly what was dumped — the superuser runs known content, not arbitrary input. |
+| **Fixed `psql` command** | The invocation is fixed and reviewed: one file, `ON_ERROR_STOP=1`, no interactive session, no ad-hoc SQL. |
+
+The credential is powerful; the isolation, the immutability of the input, and the fixed command
+are what make that acceptable. Remove any one of them and this reasoning no longer holds — in
+particular, **never** use a superuser context to run a dump that has been edited, split, or
+assembled by hand.
+
+**The prohibition on splitting, editing or narrowing the dump stands.** Do not divide `data.sql`
+by schema, do not strip its `storage` or `auth` sections, and do not restore a subset and call
+it a demonstration. It is restored whole or the attempt is recorded as failed.
 
 Each file still runs separately, each still uses `ON_ERROR_STOP=1`, and the **first error still
 stops the whole process**.

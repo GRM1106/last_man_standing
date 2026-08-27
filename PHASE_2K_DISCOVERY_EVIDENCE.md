@@ -1041,7 +1041,160 @@ Preserved unchanged, because this correction does not touch them:
 claimed.** Timings from the aborted first attempt are discarded, not reused.
 
 Backup artifacts are unaltered, all four directories are intact, and the gate remains
-`NOT READY`. Step 7 has not been run.
+`NOT READY`. Step 7 was subsequently executed — see section 2S.
+
+### 2S. Step 7 executed — two of three files restored, STOPPED at `data.sql`
+
+The corrected Step 7 ran against the fresh stack. **`roles.sql` and `schema.sql` succeeded;
+`data.sql` failed and the process stopped.** Staging and production were not contacted.
+
+#### Preconditions (all passed before the window opened)
+
+| Check | Result |
+|---|---|
+| Branch / working tree | `feature/lms-phase-2k-staging-discovery`, clean |
+| Container | running, **healthy** |
+| Public base tables | **0** |
+| Role configuration | **matches** the verified fresh-stack baseline |
+| Backup checksums | all three **MATCH** section 2O |
+
+| Field | Value |
+|---|---|
+| `RESTORE_START_UTC` | `2026-08-27T22:20:39Z` |
+| `RESTORE_START_EPOCH` | `1787869239` |
+
+#### Per-file outcome
+
+| Order | File | Role | Start (UTC) | End (UTC) | Exit | Outcome |
+|---|---|---|---|---|---|---|
+| 1 | `roles.sql` | `supabase_admin` | 22:20:52Z | 22:20:52Z | `0` | **SUCCESS** |
+| 2 | `schema.sql` | `postgres` | 22:20:52Z | 22:20:53Z | `0` | **SUCCESS** |
+| 3 | `data.sql` | `postgres` | 22:20:53Z | 22:20:53Z | `3` | **FAILED** |
+
+**The `supabase_admin` fix worked.** `roles.sql` — which previously failed on
+`GRANT SET ON PARAMETER "log_min_messages"` — applied cleanly under a superuser context. That
+correction is now demonstrated, not merely reasoned.
+
+Sanitized error, complete; it contains no credential, host, or connection detail:
+
+```
+ERROR:  permission denied for table buckets_vectors
+```
+
+Execution stopped immediately. No retry, no dump edited, no trigger disabled, no constraint
+dropped, no warning waived.
+
+#### Schema restore succeeded — objects now present
+
+| Measure | Local, after `schema.sql` |
+|---|---|
+| `public` base tables | **12** |
+| `public` functions | **41** |
+
+Twelve public base tables matches the count recorded for staging in section 3. This is a
+promising signal but **not** verification — that is Step 8's job and it has not been run.
+
+#### Diagnosis of the `data.sql` failure
+
+The same class of problem as the roles failure: a **platform-managed schema requiring a role
+`postgres` does not have locally.**
+
+| Fact | Value |
+|---|---|
+| Failing object | `storage.buckets_vectors` |
+| Owner | `supabase_storage_admin` |
+| `postgres` has `INSERT`? | **no** (`f`) |
+
+`data.sql` issues `COPY` into three schemas — `auth`, `public` and `storage` — because the
+data-mode dump excludes neither `auth` nor `storage` (recorded in section 2D). The `storage`
+targets include `buckets`, `buckets_analytics`, `buckets_vectors`, `objects`, `s3_multipart…`
+and `vector_indexes`, all owned by `supabase_storage_admin`. Running the file as `postgres`
+therefore fails at the first `storage` table it reaches.
+
+Note this is a **permission failure, not a data failure**. Staging holds zero rows in every
+counted table, so these `COPY` statements carry no rows; the error is the permission check on
+an empty copy into a platform-managed table.
+
+The `fixture_result_overrides` circular foreign-key warning from section 2O was **not**
+reached and remains untested.
+
+#### State after the stop
+
+| Item | State |
+|---|---|
+| Roles + schema | applied |
+| Data | **not applied** |
+| Container | running, healthy |
+| Backup artifacts | **unaltered** — sizes, permissions and SHA-256 still match section 2O |
+| Four directories | intact |
+
+**No RTO is calculated.** The window opened at `RESTORE_START_UTC` remains open: by the
+runbook, it closes only after Step 8 verification, and in any case the restore is incomplete.
+
+#### Resolution adopted — `data.sql` runs as `supabase_admin`
+
+Three options were considered: run the file as `supabase_admin`; split it so `storage` restores
+under `supabase_storage_admin`; or narrow the demonstration to `auth` and `public` only.
+
+**Option 1 is adopted.** Options 2 and 3 both require dividing or reducing the artifact, which
+the runbook prohibits — and option 3 would additionally weaken what "the backup restores" means
+while appearing to pass.
+
+The decisive fact is that `data.sql` is **one intact logical artifact spanning three schemas**,
+confirmed by inspection:
+
+| Schema | `COPY` sections | Ownership |
+|---|---:|---|
+| `auth` | 22 | platform-owned |
+| `public` | 12 | application-owned |
+| `storage` | 7 | owned by `supabase_storage_admin` |
+| **total** | **41** | — |
+
+No single non-superuser role can write to all three. `postgres` is not a superuser locally and
+holds no `INSERT` on `storage` tables, which is exactly where it failed.
+
+**Using `supabase_admin` for `COPY` does not alter table ownership.** `COPY … FROM` inserts
+rows; it does not reassign owners. Verified from the artifact: `data.sql` contains **zero**
+`SET SESSION AUTHORIZATION`, `SET ROLE`, `OWNER TO`, and `ALTER TABLE … OWNER` statements.
+Ownership remains whatever `schema.sql` established under `postgres`.
+
+#### Security boundary — recorded honestly
+
+Adopting this means two of the three restore commands run as a **local superuser**. That is a
+genuine concession and is recorded as such rather than presented as routine. It is bounded by
+three safeguards, all of which must hold:
+
+| Safeguard | What it bounds |
+|---|---|
+| Disposable local stack | The credential exists only in a throwaway container, destroyed and recreated between attempts, with no reach to staging or production |
+| Immutable dump | Checksum-verified before every run and never edited — the superuser executes known content, not arbitrary input |
+| Fixed `psql` command | One file, `ON_ERROR_STOP=1`, no interactive session, no ad-hoc SQL |
+
+Remove any one and the justification fails. In particular, a superuser context must never be
+used to run a dump that has been edited, split, or hand-assembled.
+
+#### Before any retry
+
+The stack is **no longer clean**: `roles.sql` and `schema.sql` applied, leaving 12 public base
+tables and 41 public functions. Unlike the earlier `rolconfig` case, this is a real, observable
+divergence from a fresh stack — a retry into it would not be a valid demonstration.
+
+The retry sequence is therefore:
+
+1. Stop and recreate the local stack.
+2. Re-run the Step 6 cleanliness checks — zero public base tables **and** `rolconfig` matching
+   the verified fresh-stack baseline.
+3. Only then open a **new** RTO window with a fresh `RESTORE_START_UTC` / `RESTORE_START_EPOCH`.
+   The window from this attempt is discarded, not reused, and no RTO is claimed from it.
+4. Restore in order: `roles.sql` as `supabase_admin`, `schema.sql` as `postgres`, `data.sql` as
+   `supabase_admin` — each separately, each with `ON_ERROR_STOP=1`, stopping at the first error.
+
+The `fixture_result_overrides` circular foreign-key warning recorded in section 2O remains
+**open and untested**. `data.sql` has never executed past its first `storage` target, so that
+warning has still not been exercised and must not be treated as cleared.
+
+No dump has been edited, split or narrowed, no error waived, and the backup artifacts are
+unaltered.
 
 ## 3. Query 1 — phase presence + object inventory
 
