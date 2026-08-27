@@ -352,6 +352,69 @@ Both directories now coexist under the durable root. The retry writes only to
 `lms-staging-backup.oM6MZf`; the guards in Step 4 reject any path that is not the recorded one,
 so the failed directory cannot be selected by accident.
 
+### 2I. Step 4 retry — ATTEMPTED, FAILED
+
+| Field | Value |
+|---|---|
+| Retry directory | `/Users/grantmiller/Documents/LMS-Backups/lms-staging-backup.oM6MZf` |
+| Final status | **FAILED** |
+| Exit status (`BACKUP_STATUS`) | `1` |
+| Failure stage | **first command — the roles dump**, on every attempt |
+| Completion time / duration / checksums / RPO | **none exist** |
+
+Three operator attempts were made **in this same retry directory**:
+
+| Attempt | Sanitized outcome |
+|---|---|
+| 1 | database-password authentication failure |
+| 2 | CLI access token unavailable |
+| 3 | database-password authentication failure |
+
+Every attempt stopped during the first roles-dump command. No attempt reached the schema or
+data dump.
+
+On-disk state, verified directly:
+
+| File | State |
+|---|---|
+| `roles.sql` | exists — **0 bytes**, permissions `600` |
+| `schema.sql` | **never created** |
+| `data.sql` | **never created** |
+
+Directory permissions remain `700`, containing exactly one file.
+
+**Deviation from the runbook, recorded explicitly.** Re-running the Step 4 block against the
+same destination is contrary to the runbook, which requires a fresh `mktemp -d` directory after
+any failure. That instruction exists to prevent a directory assembled from separate attempts
+carrying no single consistent RPO.
+
+In this instance the deviation **did not** produce a usable or mixed-RPO artifact: every
+attempt failed during the first command, before any content was written. The three attempts
+left a single zero-byte `roles.sql` — each run recreated the same empty file rather than
+accumulating output — so there is no partial content from one attempt combined with content
+from another. The outcome is benign, but the deviation is recorded because the reasoning that
+makes it benign is specific to this failure mode and must not be treated as precedent. A
+failure that had written any bytes would have made the directory genuinely ambiguous.
+
+**This directory is permanently invalid, retained, and must not be reused** — not as a
+destination, not filled in, not partially reused. Its disposal remains subject to separate
+operator approval.
+
+**Further backup attempts are blocked** pending a separate, **read-only** authentication
+diagnosis. Attempt 2 failing on an unavailable CLI access token, between two password
+failures, indicates the authentication state is not simply a wrong password: the Step 1 login
+verified in section 2C may no longer be valid, and the database password and the CLI access
+token are distinct credentials with distinct failure modes. Diagnosis must establish which of
+them is actually failing before any further attempt. No credential has been tested, reset, or
+rotated as part of this entry.
+
+The original failed attempt at `lms-staging-backup.r1Y5AR` was verified untouched at the time
+of this record: exactly one file, `roles.sql`, 0 bytes, permissions `600`, unchanged
+modification time. Both failed directories are retained and neither has been deleted.
+
+No database hostname, IP address, username, password, connection string, or raw error output is
+recorded here or anywhere in this repository. Only the sanitized outcomes above are retained.
+
 ## 3. Query 1 — phase presence + object inventory
 
 Paste result:
