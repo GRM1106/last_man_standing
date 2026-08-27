@@ -559,9 +559,8 @@ a database credential from somewhere other than operator input. That observation
 before this hypothesis was formed and is recorded independently of it, but it points the same
 way and should be part of the review.
 
-This is stated as a **hypothesis to be reviewed, not a conclusion**. It has not been tested,
-and testing it is explicitly out of scope here: no token was inspected, no dry-run or database
-command was run, and no credential was examined.
+This was stated as a hypothesis to be reviewed. **It has since been confirmed — see section
+2M**, which supersedes it.
 
 All three failed directories were verified untouched at the time of this record — `r1Y5AR`,
 `oM6MZf` and `VEgLt7` each hold exactly one file, `roles.sql`, 0 bytes, permissions `600`, with
@@ -569,6 +568,63 @@ All three failed directories were verified untouched at the time of this record 
 
 No raw error output, hostname, IP address, username, credential, or connection string is
 recorded here or anywhere in this repository.
+
+### 2M. CONFIRMED — CLI 2.116.0 credential resolution, and why all five attempts failed
+
+Established by local inspection of the pinned CLI implementation. **No Supabase contact, no
+dump, and no credential inspection** were involved.
+
+#### Confirmed credential precedence
+
+| Order | Source | Effect |
+|---|---|---|
+| 1 | explicit `--password` flag | used if given |
+| 2 | `SUPABASE_DB_PASSWORD` environment variable | used if non-empty |
+| 3 | neither supplies a non-empty password | the authenticated CLI **requests a temporary database login role** through the Management API and uses that credential |
+
+Independent corroboration from the pinned binary: it defines the operation `v1CreateLoginRole`
+— *"[Beta] Create a login role for CLI with temporary password"* —
+`POST /v1/projects/{ref}/cli/login-role`, with request-body field `read_only`. Exactly one call
+site passes `read_only:!1`, which in minified JavaScript is `read_only: false`.
+
+**The automatic login role is requested with `read_only: false`.** It is not inherently a
+read-only credential. The backup operation remains non-mutating because it runs only
+`pg_dumpall`/`pg_dump` — the tool choice is the safety boundary, not the credential.
+
+#### Why all five attempts failed
+
+Exporting `SUPABASE_DB_PASSWORD` selected precedence path 2 and **disabled the automatic path
+that would otherwise have worked**. Every attempt therefore authenticated with a
+manually-supplied password, and every attempt failed on that path:
+
+| Section | Attempts | Path forced |
+|---|---|---|
+| 2G | 1 | manual password (path 2) |
+| 2I | 3 | manual password (path 2), except attempt 2 which failed earlier on token availability |
+| 2L | 1 | manual password (path 2) |
+
+This also explains the observation first recorded in section 2D: the dry-run scripts embedded a
+`PGPASSWORD` value even though no password was supplied on the command line. That credential
+came from **path 3**, the automatic temporary-login path — the very mechanism the exported
+variable then suppressed during the real attempts.
+
+#### Consequences
+
+- **No further database-password reset is appropriate.** The two resets recorded in sections 2H
+  and 2K were aimed at a credential the tool was only using because the runbook forced it to.
+  A third reset would not help.
+- The correct fix is to supply **no** database password at all. The runbook's Step 4 has been
+  amended accordingly: the prompt, the export, and the password-clearing trap are removed;
+  `SUPABASE_DB_PASSWORD` is verified absent beforehand and `unset` inside the dump subshell; and
+  no `--password` or `--db-url` appears in any dump command.
+- Authentication for the dump now depends on the CLI login verified in section 2J, which was
+  confirmed valid. A future authentication failure should send the operator back to that login,
+  not to a password reset.
+- Dry-run output remains credential-bearing. Path 3 is precisely why a credential appears in it,
+  so the existing warnings and redaction wrapper still apply unchanged.
+
+The three retained failed directories are unaffected by this finding and remain invalid,
+retained, and awaiting separately approved disposal. No fourth destination has been created.
 
 ## 3. Query 1 — phase presence + object inventory
 

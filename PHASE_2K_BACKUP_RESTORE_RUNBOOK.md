@@ -218,15 +218,37 @@ select version();
 
 ## Step 4 — Take the dump
 
+> ## ⚠ NO DATABASE PASSWORD IS SUPPLIED — THIS IS DELIBERATE
+>
+> CLI `2.116.0` resolves database credentials in this order:
+>
+> 1. an explicit `--password` flag;
+> 2. the `SUPABASE_DB_PASSWORD` environment variable;
+> 3. otherwise, the **authenticated CLI requests a temporary database login role** through the
+>    Management API (`POST /v1/projects/{ref}/cli/login-role`, *"Create a login role for CLI
+>    with temporary password"*) and uses that credential.
+>
+> Supplying `SUPABASE_DB_PASSWORD` forces path 2 and **disables the automatic path**. Earlier
+> Step 4 attempts exported it and failed on password authentication for that reason. The
+> credential embedded in the dry-run output came from path 3, which is why a `PGPASSWORD` value
+> appeared even though none was supplied.
+>
+> This step therefore supplies **no** database password and ensures the variable is unset, so
+> path 3 is used. **Do not add `--password`, do not add `--db-url`, and do not export
+> `SUPABASE_DB_PASSWORD`.** No further database-password reset is appropriate.
+>
+> **The temporary login role is requested with `read_only: false`** — it is not inherently a
+> read-only credential. This backup remains non-mutating because the operation only runs
+> `pg_dumpall`/`pg_dump`, not because the credential prevents writes.
+
 > ## ⚠ STEP 4 MUST RUN UNDER BASH
 >
-> The password prompt uses `read -rs -p`, which is **Bash** syntax. In `zsh` — the operator's
-> default shell — `read -p` does not mean "prompt": it reads from the coprocess. Pasting this
-> block into `zsh` does not merely warn, it misbehaves, and the silent prompt will not work as
-> intended. Do not adapt the block to zsh syntax; run it under Bash as written.
+> The block relies on Bash semantics: `set -e` inside a `( … )` subshell, and capturing the
+> subshell's status with `$?` as a separate statement. `zsh` differs in ways that matter here —
+> notably it reserves `status` as a read-only variable aliasing `$?`. Run the block under Bash
+> as written rather than adapting it.
 
-From the default `zsh` prompt, enter an interactive Bash shell first. This preserves the TTY,
-which the silent password prompt requires — `bash -c '…'` and pipelines must not be used here.
+From the default `zsh` prompt, enter an interactive Bash shell first.
 
 ```bash
 bash                       # enter interactive Bash
@@ -273,6 +295,31 @@ fi
 echo "validated, empty, ready: $BACKUP_DIR"
 ```
 
+Confirm nothing supplies a database password. This is fail-closed and **never displays a
+value** — it reports only which file mentions the variable name, so a stray assignment cannot
+leak its contents into the terminal:
+
+```bash
+# 1. Not already set in this shell.
+if [ -n "${SUPABASE_DB_PASSWORD+set}" ]; then
+  echo "REFUSING: SUPABASE_DB_PASSWORD is set in this shell; unset it and re-check"; exit 1
+fi
+
+# 2. Not supplied by any repository environment/configuration file.
+#    Only file names are printed — never any value.
+hits="$(grep -rlI --exclude-dir=.git --exclude-dir=node_modules \
+          -e 'SUPABASE_DB_PASSWORD' -- . 2>/dev/null \
+        | grep -vE '(PHASE_2K_BACKUP_RESTORE_RUNBOOK|PHASE_2K_DISCOVERY_EVIDENCE)\.md$' || true)"
+if [ -n "$hits" ]; then
+  echo "REFUSING: repository files reference SUPABASE_DB_PASSWORD (names only):"
+  printf '  %s\n' $hits
+  echo "  Inspect them; the automatic temporary-login path must not be overridden."
+  exit 1
+fi
+
+echo "no database password supplied — automatic temporary login role will be used"
+```
+
 Every guard runs **before** the password prompt, so an operator never types a credential into a
 run that was going to be refused anyway.
 
@@ -293,9 +340,9 @@ command argument or written to a file, and no credential is placed in either.
   BACKUP_START_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; BACKUP_START_EPOCH="$(date +%s)"
   echo "backup start: $BACKUP_START_UTC"
 
-  read -rs -p "staging db password: " SUPABASE_DB_PASSWORD; echo
-  trap 'unset SUPABASE_DB_PASSWORD' EXIT
-  export SUPABASE_DB_PASSWORD
+  # No database password is supplied. Unsetting it here guarantees the CLI takes the
+  # automatic temporary-login path even if the variable leaked into the environment.
+  unset SUPABASE_DB_PASSWORD
 
   npx --yes supabase@2.116.0 db dump --project-ref evhiixndiuwwodsouyhf \
     --role-only -f "$BACKUP_DIR/roles.sql"
@@ -357,16 +404,22 @@ never be treated as a backup on the strength of its permissions.
 **On success**, record into the evidence document: resolved path, file names, sizes, SHA-256
 checksums, `BACKUP_START_UTC`, `BACKUP_END_UTC`, duration, and RPO.
 
-### Why the password is scoped this way
+### Why no database password is handled here
 
-- The **subshell is the primary isolation**: `SUPABASE_DB_PASSWORD` is read and exported only
-  inside it, so the interactive parent shell never holds the variable at all, whatever happens.
-- The `EXIT` trap, installed immediately after the read, clears it within that scope on *every*
-  exit path — normal completion, a failed dump under `set -e`, or an interrupt.
-- `read -rs` is silent, and the value is never echoed, logged, or written to a file.
-- The exported value is still inherited by the `npx` child processes, which is how the CLI
-  consumes it. As stated in the credential section, that reduces exposure but does not hide it
-  from every same-user process.
+- **The operator never enters a database password**, so there is no prompt, no exported
+  variable, and nothing to clear. The safest credential is the one that never exists in this
+  shell.
+- `SUPABASE_DB_PASSWORD` is checked before the run and `unset` inside the subshell, so the
+  automatic temporary-login path is taken even if the variable leaked in from elsewhere.
+- The temporary credential is obtained by the CLI over its authenticated Management API session
+  and is never written to a file by this runbook. It does still appear in the CLI's generated
+  script, which is why dry-run output remains credential-bearing and must not be pasted,
+  committed, logged, or retained.
+- The temporary login role is created with `read_only: false`. It could write; this operation
+  does not, because it runs only `pg_dumpall`/`pg_dump`. Do not treat the credential as a
+  safety boundary — the choice of tool is the boundary.
+- Authentication for the dump therefore depends on the CLI login verified in Step 1. If a dump
+  fails to authenticate, re-check that login rather than resetting the database password.
 
 ## Step 5 — Companion recovery artifact: the migration ledger
 
