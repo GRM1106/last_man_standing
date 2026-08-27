@@ -25,8 +25,9 @@ explicitly `READY` **and** the exact plan is separately approved.
 Update only when every row below is satisfied. Any unchecked row keeps the gate `NOT READY`.
 
 - ☑ Exact target project named: `evhiixndiuwwodsouyhf` (`last-man-standing-staging`)
-- ☐ Backup mechanism identified (name it, do not assume a plan tier)
-- ☐ Backup actually taken
+- ☑ Backup mechanism identified: pinned Supabase CLI `2.116.0` logical dump
+  (`roles.sql`, `schema.sql`, `data.sql`) plus the companion migration ledger
+- ☑ Backup actually taken: completed 2026-08-27T21:29:07Z; see section 2O
 - ☐ Restore **demonstrated** into a scratch database — an untested dump does not count
 - ☐ Recovery point / recovery time expectations stated
 - ☐ Residual risk explicitly accepted
@@ -668,6 +669,59 @@ deleted; disposal of all three remains subject to separate operator approval.
 Four directories now coexist under the durable root. Step 4's recorded-path equality guard
 accepts only `lms-staging-backup.Fug9iB`, so none of the three invalid directories can be
 selected by accident.
+
+### 2O. Steps 4–5 — backup completed and companion ledger bound
+
+Step 4 completed successfully against confirmed staging
+`evhiixndiuwwodsouyhf` using Supabase CLI `2.116.0`'s automatic temporary-login path. No
+database password was requested or supplied. The operation used only logical dump tools; no
+staging mutation was performed.
+
+| Field | Value |
+|---|---|
+| Resolved backup path | `/Users/grantmiller/Documents/LMS-Backups/lms-staging-backup.Fug9iB` |
+| Backup start (UTC) | `2026-08-27T21:26:48Z` |
+| Backup end (UTC) | `2026-08-27T21:29:07Z` |
+| Duration | `139s` |
+| Recovery point (RPO) | `2026-08-27T21:29:07Z` |
+| Result | **SUCCESS** — all three dumps completed |
+
+#### Backup artifacts
+
+Verified directly on disk after completion. The directory remains `700`; every artifact is
+owner-only (`600`).
+
+| File | Size (bytes) | SHA-256 |
+|---|---:|---|
+| `roles.sql` | 370 | `168a95a9c745af5ed4679751f90419ac9dc434240a213b03e32a06d5664c2308` |
+| `schema.sql` | 121177 | `d33f5d0cc0533c3c4a298fedc9a17e9fb3b134d2a37075d200810d545dafdd80` |
+| `data.sql` | 13628 | `73c24602cf7499ba3c9b1ef4313cdd013939f0a6f4cba8b3fc8700a4a684d8ea` |
+
+The data dump reported a circular foreign-key constraint involving
+`fixture_result_overrides`. This is a restore-test finding, not a dump failure. Step 7 must
+stop on and report any resulting SQL error; the dump must not be edited or the warning waived
+without separate review.
+
+#### Required companion migration ledger (Step 5)
+
+The 24-row staging application migration history remains recorded verbatim in section 4. It
+agrees with the recorded schema sentinels: Modules 1–22 plus P1/P2 are present, while Phase 1
+and Phase 2A–2J are absent. No disagreement was found at this binding step.
+
+| Provenance field | Value |
+|---|---|
+| Evidence source commit before this Step 5 edit | `e5222cf50dd6e7ba89b085c8cd6237f3cec730a5` |
+| SHA-256 of that committed evidence document | `b716db1ff23cf9a336f54151fbda6e4859fe204b7c749e54e4ce5e692c2d398a` |
+| Ledger rows | `24` |
+
+This ledger is **companion reconstruction evidence only**. It does not recreate database
+state, and restoring the dump does not restore the staging application ledger. Any unexplained
+disagreement between this ledger, the restored schema sentinels, and the expected source commit
+stops the process; no source is treated as automatically authoritative.
+
+The backup mechanism and backup-taken gate rows are now satisfied. The overall gate remains
+`NOT READY`: restore demonstration, completed RPO/RTO expectations, and explicit residual-risk
+acceptance remain open.
 
 ## 3. Query 1 — phase presence + object inventory
 
