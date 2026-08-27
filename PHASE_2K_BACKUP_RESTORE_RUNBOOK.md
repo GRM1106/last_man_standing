@@ -459,27 +459,81 @@ RESTORE_START_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; RESTORE_START_EPOCH="$(date 
 echo "restore window start: $RESTORE_START_UTC"
 
 npx --yes supabase@2.116.0 stop --no-backup || true
-npx --yes supabase@2.116.0 start -x studio,imgproxy,inbucket,storage-api,edge-runtime,logflare,vector,supavisor,realtime
+npx --yes supabase@2.116.0 start -x studio,imgproxy,mailpit,storage-api,edge-runtime,logflare,vector,supavisor,realtime
 docker ps --format '{{.Names}}' | grep supabase_db_last_man_standing
 ```
 
-`-x` / `--exclude` is a valid `supabase start` flag (confirmed from its `--help`).
+`-x` / `--exclude` is a valid `supabase start` flag (confirmed from its `--help`). The mail
+service is named **`mailpit`** in this CLI version, not `inbucket`; an `inbucket` token is
+silently ignored and the mail container starts anyway. The container is still *named*
+`supabase_inbucket_last_man_standing` for legacy reasons, which is easy to misread as the
+exclusion having failed.
+
+**Confirm the stack is clean before continuing.** A previous failed restore can leave role-level
+settings behind even when no tables were created:
+
+```bash
+docker exec supabase_db_last_man_standing psql -tAq -U postgres -d postgres -c \
+  "select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace
+    where n.nspname='public' and c.relkind='r';"        # expect 0
+
+docker exec supabase_db_last_man_standing psql -tAq -U postgres -d postgres -c \
+  "select rolname, rolconfig from pg_roles
+    where rolname in ('anon','authenticated','authenticator');"   # expect platform defaults only
+```
+
+Record `RESTORE_START_UTC` and `RESTORE_START_EPOCH` **only after** the stack is confirmed
+healthy and clean. A window opened against a contaminated stack does not measure a restore.
 
 ## Step 7 — Restore into the local stack, in order
 
 Each file runs separately so a failure identifies which stage broke. `ON_ERROR_STOP=1` matches
 the convention already used throughout `scripts/test-db-phase1.sh`.
 
+> ## ⚠ `roles.sql` MUST RUN AS `supabase_admin`
+>
+> A platform roles dump contains statements only a superuser may execute. Specifically it ends
+> with `GRANT SET ON PARAMETER "log_min_messages" TO "supabase_realtime_admin"`. Locally,
+> `postgres` is **not** a superuser (it has `CREATEROLE` only), so that statement is rejected
+> with `permission denied for parameter log_min_messages`. `supabase_admin` **is** a superuser
+> and is the appropriate platform-administration context for the roles file.
+>
+> `schema.sql` and `data.sql` keep `-U postgres`, which is the intended application ownership
+> context. Do not change them without a separately verified reason.
+
 ```bash
 C=supabase_db_last_man_standing
 
-docker exec -i "$C" psql -v ON_ERROR_STOP=1 -q -U postgres -d postgres < "$BACKUP_DIR/roles.sql"
-docker exec -i "$C" psql -v ON_ERROR_STOP=1 -q -U postgres -d postgres < "$BACKUP_DIR/schema.sql"
-docker exec -i "$C" psql -v ON_ERROR_STOP=1 -q -U postgres -d postgres < "$BACKUP_DIR/data.sql"
+docker exec -i "$C" psql -v ON_ERROR_STOP=1 -q -U supabase_admin -d postgres < "$BACKUP_DIR/roles.sql"
+docker exec -i "$C" psql -v ON_ERROR_STOP=1 -q -U postgres       -d postgres < "$BACKUP_DIR/schema.sql"
+docker exec -i "$C" psql -v ON_ERROR_STOP=1 -q -U postgres       -d postgres < "$BACKUP_DIR/data.sql"
 ```
+
+Each file still runs separately, each still uses `ON_ERROR_STOP=1`, and the **first error still
+stops the whole process**.
 
 **Stop and report the first exact SQL error if any file fails.** Do not skip a file, do not
 edit the dump to make it apply, and do not continue to the next stage.
+
+### Retrying after a failed restore — recreate the stack first
+
+A failed restore can leave the local stack **partially modified even when no tables were
+created**. The first Step 7 attempt failed on the final statement of `roles.sql`, but the three
+preceding `ALTER ROLE … SET "statement_timeout"` statements had already committed, so local role
+configuration was altered.
+
+Never retry a restore into a stack that a previous attempt has touched — the result would not be
+a clean demonstration, and a passing outcome could be an artefact of leftover state. Before any
+retry:
+
+```bash
+npx --yes supabase@2.116.0 stop --no-backup
+npx --yes supabase@2.116.0 start -x studio,imgproxy,mailpit,storage-api,edge-runtime,logflare,vector,supavisor,realtime
+```
+
+Then re-run the Step 6 cleanliness checks — 0 public base tables **and** role configuration back
+to platform defaults — and only then record a fresh `RESTORE_START_UTC` / `RESTORE_START_EPOCH`.
+The timings from an aborted attempt are discarded, not reused: a failed window yields no RTO.
 
 ## Step 8 — Verify the restore reproduces staging
 

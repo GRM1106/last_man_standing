@@ -723,6 +723,196 @@ The backup mechanism and backup-taken gate rows are now satisfied. The overall g
 `NOT READY`: restore demonstration, completed RPO/RTO expectations, and explicit residual-risk
 acceptance remain open.
 
+### 2P. Step 6 — local disposable restore stack started
+
+**Step 6 only.** No restore was performed: `roles.sql`, `schema.sql` and `data.sql` have **not**
+been applied. Staging and production were not contacted.
+
+| Field | Value |
+|---|---|
+| `RESTORE_START_UTC` | `2026-08-27T21:39:36Z` |
+| `RESTORE_START_EPOCH` | `1787866776` |
+| Branch | `feature/lms-phase-2k-staging-discovery`, working tree clean |
+| CLI version | `2.116.0` (pinned) |
+| Stop command | `stop --no-backup` — reported *"Stopped supabase local development setup."* |
+| Start command | `start -x studio,imgproxy,inbucket,storage-api,edge-runtime,logflare,vector,supavisor,realtime` |
+| Start exit status | `0` |
+
+The start epoch is recorded for the **RTO calculation in Step 8**, which measures local-stack
+startup plus restore plus verification as a single window.
+
+#### Backup integrity re-verified before starting
+
+All three artifacts were re-checksummed immediately before Step 6 and again after it. Sizes,
+permissions and SHA-256 values are unchanged from section 2O, so starting the stack did not
+touch the backup.
+
+#### Local container state
+
+| Container | Status |
+|---|---|
+| `supabase_db_last_man_standing` | **running, healthy** |
+| `supabase_pg_meta_last_man_standing` | running, healthy |
+| `supabase_rest_last_man_standing` | running |
+| `supabase_auth_last_man_standing` | running, healthy |
+| `supabase_kong_last_man_standing` | running, healthy |
+| `supabase_inbucket_last_man_standing` | running — see deviation below |
+
+Database container image `public.ecr.aws/supabase/postgres:17.6.1.165`, reporting
+`server_version` **17.6**. This matches the staging server version recorded in section 2F, so
+the restore target is version-aligned with the source.
+
+The stack is **clean**: `public` contains **0 base tables**, confirming nothing pre-exists to
+confuse the Step 8 verification.
+
+#### Deviation: the `inbucket` exclusion has no effect
+
+`supabase_inbucket_last_man_standing` is running even though `inbucket` appears in the `-x`
+list. `supabase start --help` on this CLI version lists the excludable services as
+`gotrue, realtime, storage-api, imgproxy, kong, mailpit, postgrest, postgres-meta, studio,
+edge-runtime, logflare, vector, supavisor` — **`inbucket` is not among them; the mail service
+is named `mailpit`**. The token is therefore not recognised and the mail container starts
+regardless.
+
+This is harmless for the restore: the mail service plays no part in Steps 7 or 8, and the
+database container is unaffected. It is recorded because the runbook's command implies an
+exclusion that does not take effect, and a future reader should not infer the service was
+suppressed. Correcting the token to `mailpit` is a separate runbook change and was **not** made
+as part of executing Step 6.
+
+Note also that the CLI logged *"Seeding globals from roles.sql"* during startup. That is the
+CLI's **own internal** roles file for local initialisation — it is **not** the backup's
+`roles.sql`, which remains unapplied.
+
+Step 7 was subsequently attempted — see section 2Q. Step 8 has not been run.
+
+### 2Q. Step 7 — restore ATTEMPTED, STOPPED at the first file
+
+Restore into the running local disposable stack. **It stopped at the first file and did not
+proceed.** Staging and production were not contacted.
+
+| Field | Value |
+|---|---|
+| Container | `supabase_db_last_man_standing` (running, healthy throughout) |
+| Backup directory | `/Users/grantmiller/Documents/LMS-Backups/lms-staging-backup.Fug9iB` |
+| Preconditions | container healthy; `public` had **0 base tables**; all three checksums re-verified against section 2O — **all matched** |
+
+#### Per-file outcome
+
+| Order | File | Start (UTC) | End (UTC) | Exit | Outcome |
+|---|---|---|---|---|---|
+| 1 | `roles.sql` | 2026-08-27T21:42:57Z | 2026-08-27T21:42:57Z | `3` | **FAILED** |
+| 2 | `schema.sql` | — | — | — | **not run** |
+| 3 | `data.sql` | — | — | — | **not run** |
+
+Sanitized error, verbatim and complete — it contains no credential, host, or connection detail:
+
+```
+ERROR:  permission denied for parameter log_min_messages
+```
+
+Execution stopped immediately, as required. The remaining two files were **not** applied, no
+retry was made, no dump was edited, no trigger was disabled, no constraint was dropped, and the
+`fixture_result_overrides` circular foreign-key warning was **not** reached — that warning
+concerns `data.sql`, which never ran.
+
+#### Characterisation — CORRECTED
+
+An earlier revision of this section attributed the failure to an `ALTER ROLE … SET` statement.
+**That was wrong**, inferred from a truncating pattern match rather than the statement text.
+Corrected from the file itself, read-only and unaltered.
+
+`roles.sql` contains, in order: 3 × session `SET`, then
+
+```
+ALTER ROLE "anon"          SET "statement_timeout" TO '3s';
+ALTER ROLE "authenticated" SET "statement_timeout" TO '8s';
+ALTER ROLE "authenticator" SET "statement_timeout" TO '8s';
+GRANT SET ON PARAMETER "log_min_messages" TO "supabase_realtime_admin";
+RESET ALL;
+```
+
+**The failing statement is the `GRANT SET ON PARAMETER`, not any `ALTER ROLE`.** The three
+`ALTER ROLE` statements executed successfully *before* the failure.
+
+Cause — a **privilege difference between source and target**, not a corrupt or truncated dump:
+
+| Role | Superuser | `CREATEROLE` |
+|---|---|---|
+| `postgres` (local, used for the attempt) | **no** | yes |
+| `supabase_admin` (local) | **yes** | yes |
+
+`GRANT SET ON PARAMETER` requires superuser. The restore ran as `postgres`, which locally is not
+one, so the statement was rejected. On Supabase-managed staging the dumping role holds that
+privilege, which is why the dump contains the statement at all.
+
+#### Partial application — the local stack was modified
+
+**No public tables were created, but the stack is not untouched.** The three `ALTER ROLE`
+statements committed before the failure, so local role configuration now carries settings from
+the dump:
+
+| Role | Observed local `rolconfig` after the failed attempt |
+|---|---|
+| `anon` | `statement_timeout=3s` |
+| `authenticated` | `statement_timeout=8s` |
+| `authenticator` | `session_preload_libraries=supautils, safeupdate, statement_timeout=8s, lock_timeout=8s` |
+
+"Zero public base tables" is therefore **not** sufficient evidence that a stack is clean. A
+retry into this stack would not be a clean demonstration, and a pass could be an artefact of
+leftover state. The runbook has been amended to require stopping and recreating the stack before
+any retry, and to check role configuration as well as table count.
+
+#### State after the stop
+
+| Item | State |
+|---|---|
+| Local `public` base tables | **0** — no schema or data was restored |
+| Local role configuration | **modified** — see partial application above |
+| Container | running, healthy |
+| Backup artifacts | **unaltered** — sizes, permissions and SHA-256 all still match section 2O |
+| Three retained failed directories | untouched |
+
+The backup itself is **not** invalidated by this. Section 2O's success stands: the dump
+completed and its integrity is intact. What has not yet been demonstrated is that it *restores*,
+which is precisely the gate row still outstanding.
+
+#### Consequence for the gate
+
+The **restore-demonstrated** gate row remains **unchecked**, and the gate remains `NOT READY`.
+An RTO figure is not produced, because the restore did not complete; the window opened at
+`RESTORE_START_UTC` in section 2P remains open and unmeasured.
+
+#### Resolution adopted — run `roles.sql` as `supabase_admin`
+
+The options considered were: apply the roles dump in a superuser context; exclude role-level
+statements from the restore path; or scope the demonstration to schema and data only. The
+second and third both reduce what the demonstration proves, and the third would leave "the
+backup restores" asserted on the strength of a partial exercise.
+
+The adopted fix is the first, and it requires **no change to the backup**: `roles.sql` now runs
+as `supabase_admin`, which is a local superuser and the appropriate platform-administration
+context. `schema.sql` and `data.sql` keep `-U postgres`, the intended application ownership
+context, unless a separately verified reason requires otherwise. All three files still run
+separately with `ON_ERROR_STOP=1`, and the first error still stops the process.
+
+The backup file is unchanged, no error is waived, and no dump will be edited to force a pass.
+
+Runbook amendments made alongside this correction:
+
+- Step 7 runs `roles.sql` as `supabase_admin`; `schema.sql` and `data.sql` unchanged.
+- A retry must first **stop and recreate** the local stack, because the failed attempt altered
+  local role configuration.
+- `RESTORE_START_UTC` / `RESTORE_START_EPOCH` are recorded **only after** a fresh stack is
+  confirmed healthy **and** clean — 0 public base tables *and* role configuration at platform
+  defaults.
+- Step 6's exclusion token is corrected from `inbucket` to `mailpit`, the actual service name
+  in this CLI version, with a note that the container retains the legacy `inbucket` name.
+
+The restore has **not** been retried. Steps 7 and 8 remain outstanding, the gate remains
+`NOT READY`, and no RTO is produced from the failed window — those timings are discarded, not
+reused.
+
 ## 3. Query 1 — phase presence + object inventory
 
 Paste result:
