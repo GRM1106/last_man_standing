@@ -218,9 +218,71 @@ select version();
 
 ## Step 4 — Take the dump
 
-The password prompt and all three dumps run inside a **subshell** with `set -e`, so the first
-failure stops the sequence and no later dump runs. RPO is the **completion** timestamp and is
-calculated only when all three dumps have succeeded.
+> ## ⚠ STEP 4 MUST RUN UNDER BASH
+>
+> The password prompt uses `read -rs -p`, which is **Bash** syntax. In `zsh` — the operator's
+> default shell — `read -p` does not mean "prompt": it reads from the coprocess. Pasting this
+> block into `zsh` does not merely warn, it misbehaves, and the silent prompt will not work as
+> intended. Do not adapt the block to zsh syntax; run it under Bash as written.
+
+From the default `zsh` prompt, enter an interactive Bash shell first. This preserves the TTY,
+which the silent password prompt requires — `bash -c '…'` and pipelines must not be used here.
+
+```bash
+bash                       # enter interactive Bash
+echo "${BASH_VERSION:?not running under bash — stop}"   # must print a version
+```
+
+> **Shell variables do not survive a new terminal session.** `BACKUP_DIR` and `BACKUP_ROOT`
+> were set in Step 0. If that was a different terminal, tab, or shell — and entering `bash`
+> above starts a new shell — those variables are **gone**. They are therefore re-established
+> from the recorded value below and revalidated from scratch, rather than assumed to still be
+> set. Never proceed on an unset or inherited-by-luck `BACKUP_DIR`.
+
+Re-establish and revalidate the recorded path **before** any password is entered or any file is
+written:
+
+```bash
+BACKUP_ROOT="/Users/grantmiller/Documents/LMS-Backups"
+RECORDED_BACKUP_DIR="/Users/grantmiller/Documents/LMS-Backups/lms-staging-backup.r1Y5AR"
+BACKUP_DIR="/Users/grantmiller/Documents/LMS-Backups/lms-staging-backup.r1Y5AR"
+
+# Must already exist; this step never creates it.
+[ -d "$BACKUP_DIR" ] || { echo "REFUSING: not a directory: $BACKUP_DIR"; exit 1; }
+
+# Resolve to a real absolute path, then re-run the Step 0 guards.
+BACKUP_ROOT="$(cd "$BACKUP_ROOT" && pwd -P)"
+BACKUP_DIR="$(cd "$BACKUP_DIR" && pwd -P)"
+
+[ "$(dirname "$BACKUP_DIR")" = "$BACKUP_ROOT" ] || {
+  echo "REFUSING: not directly beneath $BACKUP_ROOT: $BACKUP_DIR"; exit 1; }
+case "$(basename "$BACKUP_DIR")" in
+  lms-staging-backup.??????) ;;
+  *) echo "REFUSING: unexpected basename: $BACKUP_DIR"; exit 1 ;;
+esac
+[ "$BACKUP_DIR" = "$RECORDED_BACKUP_DIR" ] || {
+  echo "REFUSING: does not match recorded path"; exit 1; }
+
+# Fail closed unless the directory is completely empty.
+if [ -n "$(ls -A "$BACKUP_DIR")" ]; then
+  echo "REFUSING: $BACKUP_DIR is not empty — a previous attempt may exist."
+  echo "  Do not overwrite it. Investigate, then start a fresh mktemp -d directory."
+  ls -la "$BACKUP_DIR"; exit 1
+fi
+
+echo "validated, empty, ready: $BACKUP_DIR"
+```
+
+Every guard runs **before** the password prompt, so an operator never types a credential into a
+run that was going to be refused anyway.
+
+The password prompt and all three dumps then run inside a **subshell** with `set -e`, so the
+first failure stops the sequence and no later dump runs. RPO is the **completion** timestamp
+and is calculated only when all three dumps have succeeded.
+
+`BACKUP_DIR` is visible inside the subshell without being exported: a `( … )` subshell inherits
+the parent shell's variables, exported or not. Nothing therefore needs to be passed as a
+command argument or written to a file, and no credential is placed in either.
 
 ```bash
 (
