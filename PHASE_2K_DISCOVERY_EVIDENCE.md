@@ -448,7 +448,69 @@ current database password is wrong, only that the access token is not the obstac
 
 No credential was tested, reset, or rotated. No backup directory was created and no backup was
 attempted. Further backup attempts remain blocked pending an explicit decision on the database
-password.
+password. That decision is recorded in section 2K.
+
+### 2K. Second credential reset and third retry destination
+
+Prepared 2026-08-27. **Step 4 has not been retried**; this section records preparation only.
+
+#### Credential — second reset
+
+| Field | Value |
+|---|---|
+| Action | staging database password reset — **second** reset, operator-confirmed |
+| Scope | **staging only** — project ref `evhiixndiuwwodsouyhf` (`last-man-standing-staging`) |
+| Production | ref `enzdvsppduyqtpdeseyh` — **not changed**, not accessed, not contacted |
+| Storage | saved privately by the operator |
+| Recorded here | **no password value, fragment, or length** |
+
+Target confirmation: the operator supplied this Database Settings URL immediately before
+performing the second reset —
+
+```
+https://supabase.com/dashboard/project/evhiixndiuwwodsouyhf/database/settings
+```
+
+The `/dashboard/project/<ref>/` path segment carries the ref directly, so the URL itself
+confirms staging ref `evhiixndiuwwodsouyhf`. It is a Database Settings page, which is where a
+database password reset is performed, so the URL corroborates both the target project and the
+nature of the action. Operator attestation: the reset was completed and the new password saved.
+Production ref `enzdvsppduyqtpdeseyh` remained untouched — distinct in full, not the target,
+not accessed, not contacted.
+
+The new password has **not been tested**. Section 2J established that the CLI access token is
+valid, so the database password is the remaining untested element; whether this second reset
+resolves the failures will first be established by the Step 4 retry itself. No dry-run, dump,
+or connection was performed to verify it, and no other credential was rotated.
+
+#### Third retry destination
+
+| Field | Value |
+|---|---|
+| Path | `/Users/grantmiller/Documents/LMS-Backups/lms-staging-backup.VEgLt7` |
+| Created | `mktemp -d` beneath the unchanged durable root, per the committed convention |
+| Resolved | via `pwd -P` |
+| Permissions | `drwx------` (`700`) |
+| Contents | **empty** — 0 files |
+| Guards | direct-parent equals root; basename matches `lms-staging-backup.??????` |
+
+This is the new `RECORDED_BACKUP_DIR`. The runbook's two Step 4 path variables were updated to
+it; the durable root and every other command are unchanged.
+
+#### Previous attempts
+
+Both remain **invalid and retained**, verified unchanged at preparation time — each holding
+exactly one file, `roles.sql`, 0 bytes, permissions `600`, with unchanged modification times:
+
+| Directory | State |
+|---|---|
+| `lms-staging-backup.r1Y5AR` | first failed attempt — invalid, retained |
+| `lms-staging-backup.oM6MZf` | failed retry, three attempts — invalid, retained |
+
+Neither is reused, written to, or deleted. Disposal of both remains subject to separate
+operator approval. Three directories now coexist under the durable root; Step 4's recorded-path
+equality guard accepts only `lms-staging-backup.VEgLt7`, so neither invalid directory can be
+selected by accident.
 
 ## 3. Query 1 — phase presence + object inventory
 

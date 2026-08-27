@@ -244,8 +244,8 @@ written:
 
 ```bash
 BACKUP_ROOT="/Users/grantmiller/Documents/LMS-Backups"
-RECORDED_BACKUP_DIR="/Users/grantmiller/Documents/LMS-Backups/lms-staging-backup.oM6MZf"
-BACKUP_DIR="/Users/grantmiller/Documents/LMS-Backups/lms-staging-backup.oM6MZf"
+RECORDED_BACKUP_DIR="/Users/grantmiller/Documents/LMS-Backups/lms-staging-backup.VEgLt7"
+BACKUP_DIR="/Users/grantmiller/Documents/LMS-Backups/lms-staging-backup.VEgLt7"
 
 # Must already exist; this step never creates it.
 [ -d "$BACKUP_DIR" ] || { echo "REFUSING: not a directory: $BACKUP_DIR"; exit 1; }
