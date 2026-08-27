@@ -415,6 +415,41 @@ modification time. Both failed directories are retained and neither has been del
 No database hostname, IP address, username, password, connection string, or raw error output is
 recorded here or anywhere in this repository. Only the sanitized outcomes above are retained.
 
+### 2J. Read-only CLI authentication diagnosis
+
+Single read-only check. No database command was run, no API keys were retrieved, `--debug` was
+not used, and no stored token contents were inspected or printed.
+
+| Field | Value |
+|---|---|
+| Command | `npx --yes supabase@2.116.0 projects list` |
+| UTC time | 2026-08-27T18:42:15Z |
+| Exit status | `0` |
+| Authenticated project metadata returned | **YES** |
+| Staging ref `evhiixndiuwwodsouyhf` present | **YES** |
+| Project entries returned | 2 |
+| Sanitized error category | none — the command succeeded |
+
+**The CLI access token is valid.** Management API authentication works, and the account can see
+the staging project. The Step 1 login recorded in section 2C has not lapsed.
+
+What this does and does not establish:
+
+- It **does** establish that the CLI access token was usable at the timestamp above, so the
+  "CLI access token unavailable" outcome in section 2I attempt 2 was **not** a persistent loss
+  of login. It was transient, or specific to that invocation.
+- It does **not** exercise the database password. `projects list` reaches the Management API
+  only; `db dump` additionally requires the project's database password, which is a separate
+  credential over a separate channel. That password remains **untested**.
+
+Consequently the remaining suspect for the section 2I failures is the **database password**,
+not the CLI login. This narrows the diagnosis but does not complete it: nothing here proves the
+current database password is wrong, only that the access token is not the obstacle.
+
+No credential was tested, reset, or rotated. No backup directory was created and no backup was
+attempted. Further backup attempts remain blocked pending an explicit decision on the database
+password.
+
 ## 3. Query 1 — phase presence + object inventory
 
 Paste result:
