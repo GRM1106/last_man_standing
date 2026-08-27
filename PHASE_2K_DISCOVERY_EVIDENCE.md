@@ -36,6 +36,207 @@ Restore demonstration notes (what was restored, where, and what verified it):
 ```
 ```
 
+### 2A. Backup artifact — recorded destination (Step 0 executed)
+
+`PHASE_2K_BACKUP_RESTORE_RUNBOOK.md` Step 0 was executed on 2026-08-27. **Step 0 only**; no
+authentication, dry-run, dump, restore, or deletion was performed, and Supabase was not
+contacted.
+
+| Field | Value |
+|---|---|
+| Durable root | `/Users/grantmiller/Documents/LMS-Backups` (`drwx------`, `700`) |
+| **Recorded backup directory** | `/Users/grantmiller/Documents/LMS-Backups/lms-staging-backup.r1Y5AR` |
+| Directory permissions | `drwx------` (`700`) |
+| Contents at creation | empty (0 files) |
+| Branch at execution | `feature/lms-phase-2k-staging-discovery` |
+| Runbook commit executed from | `090a20036bcb8a3f706e4d3296b81437940d554c` |
+| Guards passed | `dirname` equals root; `basename` matches `lms-staging-backup.??????` |
+
+This is the value of `RECORDED_BACKUP_DIR` referenced by the runbook. Every later step, and any
+eventual operator-approved disposal, validates against this exact path. It contains no dump
+files: Step 4 has not been run.
+
+### 2B. Target project confirmation (independent of the repository)
+
+The operator supplied this Supabase dashboard URL:
+
+```
+https://supabase.com/dashboard/project/evhiixndiuwwodsouyhf/sql/f155d9c8-6b27-4b49-8c34-df36c34c66bf
+```
+
+Confirmed from it:
+
+| Field | Value |
+|---|---|
+| Project reference | `evhiixndiuwwodsouyhf` |
+| Project name | `last-man-standing-staging` |
+| Environment | staging |
+| Is production `enzdvsppduyqtpdeseyh`? | **No** — the refs differ in full |
+
+The `/dashboard/project/<ref>/` path segment carries the ref directly, so the URL itself
+establishes `evhiixndiuwwodsouyhf` and rules out the production ref `enzdvsppduyqtpdeseyh`.
+This is independent of `supabase/.temp/linked-project.json`, which the runbook forbids relying
+on; the two agree, but the URL is what is recorded here.
+
+Provenance note: the project **name** and the staging designation come from dashboard
+screenshots reviewed by the operator, recorded here as operator attestation. The **reference**
+is verified directly from the supplied URL string. Both are recorded; the distinction is kept
+because only the ref determines which database a command reaches.
+
+The target-project row of the gate checklist above is satisfied by this entry.
+
+### 2C. Step 1 (authenticate) — COMPLETED
+
+| Field | Value |
+|---|---|
+| Status | **Step 1 complete** |
+| Login method | operator-confirmed interactive browser login, run manually in an interactive terminal |
+| Command run by operator | `npx --yes supabase@2.116.0 login` |
+| CLI version | `2.116.0` |
+| Verified (UTC) | 2026-08-27T09:14:20Z |
+| Verification method | `npx --yes supabase@2.116.0 projects list` — read-only Management API call |
+| Result | authenticated; the API returned project metadata, which requires a valid token |
+
+**Persistent local CLI authentication now exists on this machine, outside the repository**, in
+the Supabase CLI's own configuration location. It survives beyond this procedure and remains
+until explicitly revoked or logged out. Treat it as a live credential.
+
+**No credential value was read, printed, inspected, or recorded.** Verification relied only on
+whether an authenticated read-only call succeeded, never on the token itself. `projects api-keys`
+was deliberately not used, as it returns secrets.
+
+Corroboration obtained from the same read-only call (non-secret metadata):
+
+| Ref | Name | Region | Status |
+|---|---|---|---|
+| `evhiixndiuwwodsouyhf` | `last-man-standing-staging` | eu-west-1 | ACTIVE_HEALTHY |
+| `enzdvsppduyqtpdeseyh` | `GRM1106's LMS` (production) | eu-west-3 | ACTIVE_HEALTHY |
+
+This **machine-verifies** the project name recorded in section 2B, which until now rested on
+operator attestation from dashboard screenshots. The staging ref and name now agree from two
+independent sources, and the production project is confirmed distinct in ref, name and region.
+
+The call also reported both projects as `linked: false`, and the CLI emitted
+`Cannot find project ref. Have you run supabase link?`. This is consistent with the runbook's
+rule of never relying on `supabase/.temp/linked-project.json` and always passing
+`--project-ref` explicitly. That stale local file should not be treated as link state.
+
+Incidental observation, **not** a completion of Step 3: the API reports staging Postgres
+`17.6.1.155` (engine `17`). The container `pg_dump` is 17.6, so the version-compatibility
+condition appears satisfiable. Step 3's own check — `select version();` read from the confirmed
+staging SQL Editor — has not been performed and remains outstanding.
+
+Historical note: an earlier attempt to run `supabase login` from the agent's non-TTY shell on
+2026-08-27T08:59Z failed with `LegacyLoginMissingTokenError` (the automatic flow requires a
+TTY). The offered workarounds `--token` and `SUPABASE_ACCESS_TOKEN` were both declined rather
+than pass a token through that session. Superseded by the operator's manual login above.
+
+### 2D. Step 2 (dry-run plan inspection) — COMPLETED
+
+| Field | Value |
+|---|---|
+| Executed (UTC) | 2026-08-27T09:20:46Z → 2026-08-27T09:22:15Z |
+| Target | `evhiixndiuwwodsouyhf` (`last-man-standing-staging`) — production ref absent from all output |
+| CLI version | `2.116.0` |
+| Mode | `--dry-run` on all three; no dump taken, no password supplied or requested, no API keys retrieved |
+| Exit status — `--role-only` | `0` |
+| Exit status — schema (no mode flag) | `0` |
+| Exit status — `--data-only --use-copy` | `0` |
+
+Generated plans (structural summary; connection details deliberately not recorded):
+
+| Mode | Tool | Key flags |
+|---|---|---|
+| roles | `pg_dumpall` | `--roles-only --role postgres --quote-all-identifier --no-role-passwords --no-comments` |
+| schema | `pg_dump` | `--schema-only --quote-all-identifier --role postgres --exclude-schema …` |
+| data | `pg_dump` | `--data-only --quote-all-identifier --role postgres --exclude-schema … --schema "*"` |
+
+**Schema-mode `--exclude-schema` (29 entries):** `information_schema`, `pg_*`, `_analytics`,
+`_realtime`, `_supavisor`, `auth`, `etl`, `extensions`, `pgbouncer`, `realtime`, `storage`,
+`supabase_functions`, `supabase_migrations`, `cron`, `dbdev`, `graphql`, `graphql_public`,
+`net`, `pgmq`, `pgsodium`, `pgsodium_masks`, `pgtle`, `repack`, `tiger`, `tiger_data`,
+`timescaledb_*`, `_timescaledb_*`, `topology`, `vault`.
+
+**Data-mode `--exclude-schema` (22 entries):** `information_schema`, `pg_*`, `graphql`,
+`graphql_public`, `pgsodium`, `pgsodium_masks`, `pgtle`, `repack`, `tiger`, `tiger_data`,
+`timescaledb_*`, `_timescaledb_*`, `topology`, `vault`, `etl`, `extensions`, `pgbouncer`,
+`realtime`, `supabase_migrations`, `_analytics`, `_realtime`, `_supavisor`.
+
+**Data-mode table exclusions:** `auth.schema_migrations`, `storage.migrations`,
+`supabase_functions.migrations`. **Data-mode schema selector:** `--schema "*"`.
+
+Decisive determinations:
+
+| Question | Schema mode | Data mode |
+|---|---|---|
+| `supabase_migrations` excluded? | **YES** | **YES** |
+| `auth` excluded? | **YES** | **NO** |
+| `storage` excluded? | **YES** | **NO** |
+
+**The data dump INCLUDES `auth` data.** `auth` is absent from the data-mode schema exclusions
+and `--schema "*"` is selected; only the `auth.schema_migrations` table is excluded. This
+**resolves the open question in recovery-envelope item 3** — previously verified only against a
+`--local` dry-run, now confirmed against the real staging project.
+
+Comparison against recovery-envelope items 1–4 — **all confirmed, no discrepancy**:
+
+| Item | Claim | Result |
+|---|---|---|
+| 1 | Logical backup, not PITR | Confirmed — `pg_dump`/`pg_dumpall` logical dumps only |
+| 2 | `auth`/`storage` excluded from schema dump; target must be a Supabase stack | Confirmed |
+| 3 | `auth` row data included, subject to remote confirmation | **Confirmed — no longer provisional** |
+| 4 | `supabase_migrations` excluded from both modes | Confirmed |
+
+Two observations **not** covered by the committed runbook. Neither contradicts it; the runbook
+was left unedited pending review.
+
+1. The roles plan uses `--no-role-passwords`, so role passwords are not captured. A restore
+   from this backup will not recreate them. This is a sensible default but is an unstated
+   limit on what "roles" recovery means.
+2. The generated dry-run scripts embed connection exports including a `PGPASSWORD` assignment.
+   The value was **not** printed, inspected or recorded. Step 2 output is therefore
+   credential-bearing. See the containment note below; the runbook has since been amended.
+
+### 2E. Containment note — Step 2 raw output
+
+| Field | Value |
+|---|---|
+| Issue | Raw `db dump --dry-run` output in CLI `2.116.0` embeds connection exports including `PGPASSWORD` |
+| Recorded (UTC) | 2026-08-27T10:33Z |
+| Exposure to repository | **None** — no raw output was copied into the repository or this evidence |
+| Temporary capture | three files in a session-private scratchpad outside the repository, created solely to hold Step 2 output |
+| Capture permissions | `700` parent directory; files `644` |
+| Disposition | **removed by best-effort unlinking** |
+
+The raw output was never pasted into chat, committed, logged as evidence, or retained. Only
+sanitized structural findings appear in section 2D: tool names, flag names, and schema/table
+exclusion lists. No password value or fragment, no password length, no host, no username, and
+no connection string was recorded anywhere in this repository.
+
+**Deletion is best-effort unlinking only.** On APFS/SSD storage a physical overwrite cannot be
+guaranteed — copy-on-write, wear levelling, over-provisioned blocks and filesystem snapshots
+may retain recoverable copies. No secure erasure is claimed or implied.
+
+The embedded `PGPASSWORD` is treated as **potentially sensitive**. No determination is made or
+implied about whether it is ephemeral or persistent, and it was not inspected to find out.
+Any decision about credential rotation is the operator's and has not been taken here.
+
+Verification performed: the three capture files were confirmed absent afterwards; a filename
+search across the backup root and scratchpad found no other dry-run output artifact; and a
+repository content scan found no host string and no `PGPASSWORD` value — the single
+`PGPASSWORD` match in this document is the prose reference above, with no value attached.
+
+Runbook amendment: Step 2 now carries a prominent credential-bearing warning and a tested
+redaction wrapper that redacts every connection export before display, keeps the unredacted
+text in a shell variable rather than on disk, and preserves the CLI's true exit status. The
+redaction and exit-status control flow were tested with synthetic dummy text only, never with
+the captured output. `--no-role-passwords` was added to the recovery envelope as item 7.
+
+No file was created in the backup directory, which remains empty. Captured output was written
+only to a session-private scratchpad directory (`700`) outside the repository.
+
+Step 3 has not been run.
+
 ## 3. Query 1 — phase presence + object inventory
 
 Paste result:

@@ -56,7 +56,11 @@ recovery envelope and must be accepted explicitly.
    and applicable; it does not prove an in-place staging restore.
 6. **Staging currently holds zero rows** in all 12 public base tables and `auth.users`, so this
    exercises the mechanism rather than realistic data volume or restore duration.
-7. **The retained `.sql` dumps are plaintext at rest.** `umask 077`, `700` directory and `600`
+7. **Role dumps use `--no-role-passwords`.** The generated `pg_dumpall --roles-only` plan
+   includes `--no-role-passwords`, so role passwords are deliberately **not** captured and
+   will **not** be restored. Roles themselves are recovered; their passwords are not. Anything
+   depending on a role password must be re-established separately after a restore.
+8. **The retained `.sql` dumps are plaintext at rest.** `umask 077`, `700` directory and `600`
    file permissions restrict which accounts can read them, but they do **not** encrypt the
    contents. Anything in the dump is readable by anyone who obtains the file. Protection
    therefore depends on the machine's full-disk encryption and its physical and account
@@ -147,15 +151,51 @@ npx --yes supabase@2.116.0 login
 
 ## Step 2 — Print the exact dump scripts without executing them
 
+> ## ⚠ DRY-RUN OUTPUT IS CREDENTIAL-BEARING
+>
+> In CLI `2.116.0`, `db dump --dry-run` emits a runnable bash script that **embeds an
+> `export PGPASSWORD=` assignment**, together with `PGHOST`, `PGUSER`, `PGPORT` and
+> `PGDATABASE`. This happens even though no password is supplied or requested on the command
+> line. `--dry-run` is therefore **not** a safe-to-share inspection step.
+>
+> Raw dry-run output must **never** be pasted into chat or a ticket, committed, logged as
+> evidence, written to a file, or retained in scrollback. Only redacted structural findings
+> are recorded. Treat the embedded `PGPASSWORD` as potentially sensitive; do not assume it is
+> ephemeral, and do not test that assumption by inspecting it.
+
 `--dry-run` prints the `pg_dump` script and performs no dump. Running it against the real
 project ref both shows the exact script and confirms authenticated access to that project —
 no separate access check is needed, and project API keys must not be retrieved.
 
+Run each command through the redaction wrapper below. It captures output into a shell variable
+(never a file), redacts every connection export **before** anything reaches the terminal, and
+preserves the CLI's real exit status so a failure cannot be laundered into apparent success.
+
 ```bash
-npx --yes supabase@2.116.0 db dump --dry-run --project-ref evhiixndiuwwodsouyhf --role-only
-npx --yes supabase@2.116.0 db dump --dry-run --project-ref evhiixndiuwwodsouyhf
-npx --yes supabase@2.116.0 db dump --dry-run --project-ref evhiixndiuwwodsouyhf --data-only --use-copy
+redact_conn() {
+  sed -E 's/^([[:space:]]*export[[:space:]]+PG(PASSWORD|HOST|USER|DATABASE|PORT)=).*/\1"[REDACTED]"/'
+}
+
+dry_run() {            # usage: dry_run <extra flags...>
+  local raw status
+  raw="$(npx --yes supabase@2.116.0 db dump --dry-run \
+           --project-ref evhiixndiuwwodsouyhf "$@" 2>&1)"
+  status=$?                       # captured BEFORE any pipeline; this is the CLI's own status
+  printf '%s\n' "$raw" | redact_conn
+  unset raw                       # drop the unredacted copy from the shell
+  echo "exit status: $status"
+  return "$status"
+}
+
+dry_run --role-only
+dry_run
+dry_run --data-only --use-copy
 ```
+
+Assigning to `raw` and reading `$?` on the next line is what preserves the true exit status.
+Do **not** collapse this into `npx … | sed …`: a pipeline reports the exit status of `sed`,
+which is almost always `0`, so a failed CLI invocation would appear to have succeeded. The
+unredacted text exists only in a shell variable and is never written to disk.
 
 Read all three before proceeding. Confirm:
 
