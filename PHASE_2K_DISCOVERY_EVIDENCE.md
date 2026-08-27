@@ -235,7 +235,32 @@ the captured output. `--no-role-passwords` was added to the recovery envelope as
 No file was created in the backup directory, which remains empty. Captured output was written
 only to a session-private scratchpad directory (`700`) outside the repository.
 
-Step 3 has not been run.
+### 2F. Step 3 (server version compatibility) — COMPLETED
+
+| Field | Value |
+|---|---|
+| Confirmed project | `evhiixndiuwwodsouyhf` (`last-man-standing-staging`) |
+| Query | `select version();` |
+| Execution | run manually by the operator in the confirmed staging SQL Editor |
+| Result | `PostgreSQL 17.6 on x86_64-pc-linux-gnu, compiled by gcc (GCC) 15.2.0, 64-bit` |
+| Server major version | `17` |
+| Dump tooling version | PostgreSQL `17.6` (`pg_dump`/`pg_dumpall` in `public.ecr.aws/supabase/postgres:17.6.1.165`) |
+| Compatibility verdict | **PASS** — the dump tooling is not older than the server |
+
+`pg_dump` must be at least the server version. Server and tooling are both `17.6`, so the
+requirement is met exactly rather than by margin. The runbook's stop condition — server major
+version greater than 17 — is not triggered.
+
+This was a **read-only** query. No staging mutation occurred, no schema or data was altered,
+and no password was supplied or requested to run it.
+
+Corroboration: the read-only Management API call recorded in section 2C independently reported
+staging Postgres `17.6.1.155` with `postgres_engine: 17`. That is the Supabase image build
+identifier; `select version()` reports the upstream PostgreSQL version. The two agree on major
+version 17 and are consistent with one another. Step 3 was nevertheless performed through the
+runbook's own channel rather than relying on the API value.
+
+Step 4 has not been run. No dump exists and the backup directory remains empty.
 
 ## 3. Query 1 — phase presence + object inventory
 
