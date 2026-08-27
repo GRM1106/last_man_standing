@@ -307,9 +307,50 @@ The failure-handling design behaved exactly as intended and is worth recording a
 No database hostname, IP address, username, password, connection string, or raw error output
 is recorded here or anywhere in this repository. Only the sanitized cause above is retained.
 
-Outstanding before any retry: the credential itself must be resolved. That decision, including
-whether the staging database password should be rotated, is the operator's and has not been
-taken here. Step 4 has not been retried.
+Outstanding before any retry: the credential itself must be resolved. See section 2H.
+
+### 2H. Step 4 retry preparation — credential reset and fresh destination
+
+Prepared 2026-08-27. **Step 4 has not been retried**; this section records preparation only.
+
+#### Credential
+
+| Field | Value |
+|---|---|
+| Action | staging database password reset, **operator-confirmed** |
+| Scope | **staging only** — project ref `evhiixndiuwwodsouyhf` (`last-man-standing-staging`) |
+| Production | ref `enzdvsppduyqtpdeseyh` — **not changed**, not accessed, not contacted |
+| Storage | saved privately in the operator's password manager |
+| Recorded here | **no password value, fragment, or length** |
+
+The new password has **not been tested**. Whether it is correct will first be established by
+the Step 4 retry itself. No dry-run, dump, or connection was performed to verify it, and no
+other credential was rotated.
+
+#### New retry destination
+
+| Field | Value |
+|---|---|
+| Path | `/Users/grantmiller/Documents/LMS-Backups/lms-staging-backup.oM6MZf` |
+| Created | `mktemp -d` beneath the unchanged durable root, per the committed convention |
+| Resolved | via `pwd -P` |
+| Permissions | `drwx------` (`700`) |
+| Contents | **empty** — 0 files |
+| Guards | direct-parent equals root; basename matches `lms-staging-backup.??????` |
+
+This is the new `RECORDED_BACKUP_DIR`. The runbook's Step 4 path variables have been updated to
+it; the durable root and every other command are unchanged.
+
+#### Original failed attempt
+
+`/Users/grantmiller/Documents/LMS-Backups/lms-staging-backup.r1Y5AR` **remains invalid and
+retained**, verified untouched at preparation time: exactly one file, `roles.sql`, 0 bytes,
+permissions `600`. It is not reused, not written to, not deleted, and is not the retry
+destination. Disposal remains subject to separate operator approval.
+
+Both directories now coexist under the durable root. The retry writes only to
+`lms-staging-backup.oM6MZf`; the guards in Step 4 reject any path that is not the recorded one,
+so the failed directory cannot be selected by accident.
 
 ## 3. Query 1 — phase presence + object inventory
 
