@@ -27,6 +27,18 @@
 > capture's total order (`object_identity`, then `grantee`) actively sorts them the wrong way
 > when the dependent grantee sorts alphabetically first. Preflight as specified cannot detect it.
 >
+> **UPDATE 2026-08-28 — blocker RETAINED, but its reason has changed.** Isolated experiments
+> (below, "Redesign experiments") **disproved blocker 2's stronger reading**: grantor-scoped
+> removal *is* achievable, and a reset/replay algorithm was built that reproduces a full
+> grantor-scoped ACL graph exactly, repeatably, and with clean rollback. Blocker 1 stands
+> unchanged — `GRANT … GRANTED BY` remains unusable — but a working substitute was found.
+>
+> The blocker is retained because the tested algorithm is **incomplete**: it covers relation,
+> column and routine privileges only. **Schema privileges and default-privilege rules were
+> neither reset nor replayed**, and both are required. An algorithm that silently leaves the
+> target's own default-privilege rules in place would re-introduce excess on every object created
+> after recovery — the exact defect this work exists to fix.
+>
 > **Consequence:** the *capture* format is sound and validated; the *recovery mechanism* is not.
 > Generating an executable artifact from this note would produce a repair that silently fails to
 > remove third-party grants while reporting success. The sections below are retained as the
@@ -406,6 +418,101 @@ overstated it.
 | Output format | proposed, **awaiting review** |
 | Recovery artifact | **not designed in executable form, not generated, not applied** |
 | Gate | `NOT READY` — unchanged by this note |
+
+## Redesign experiments — 2026-08-28, isolated container only
+
+Conducted in a uniquely named disposable PostgreSQL 17.6 container (`pg17-aclredesign`, own
+volume, synthetic roles and data). The LMS stack was never used or modified; container and volume
+were removed afterwards by name-guarded commands. **No LMS repair artifact was produced.**
+
+### Synthetic cases built
+
+All ten required cases, verified present in the catalogue before testing:
+
+| # | Case | Observed ACL |
+|---|---|---|
+| 1 | Owner grants directly | `t_direct :: direct_grantee=r/owner_role` |
+| 2 | Third-party grantor | `t_third :: third_party=r*/owner_role, direct_grantee=r/third_party` |
+| 3 | Three-level chain | `t_chain :: role_a=r*/owner_role, role_b=r*/role_a, role_c=r/role_b` |
+| 4 | `PUBLIC` | `t_public :: =r/owner_role` |
+| 5 | Column-level | `t_col.col1 :: role_a=r/owner_role`; `t_col.col2 :: role_b=w*/owner_role` |
+| 6 | Routine | `fn_demo :: role_c=X/owner_role` |
+| 7 | Schema / table / sequence | `public :: owner_role=UC/...`; `s_seq :: role_b=rU/owner_role` |
+| 8 | Default-privilege rules | `owner_role/r :: role_a=r/owner_role`; `owner_role/f :: role_b=X/owner_role` |
+| 9 | Explicit grant to the owner | `t_third :: owner_role=r/third_party` |
+| 10 | Grantable and non-grantable | `role_a=r*` vs `direct_grantee=r` |
+
+### What was proven
+
+**Grantor-scoped removal works, via a transaction-scoped role context.** `SET LOCAL ROLE
+<grantor>` followed by `REVOKE`, then `RESET ROLE`. `SET LOCAL` is bounded by the transaction and
+reverts on commit or rollback, so the elevated context cannot leak. This is the substitute for the
+unusable `GRANT … GRANTED BY`.
+
+**Leaf-peeling removes chains without CASCADE.** Repeatedly revoke only edges whose grantee is not
+itself a grantor for the same object, so dependents always precede their enablers. The three-level
+chain `t_chain` cleared to `{}` in 5 passes — third-party and chained grants **are** removable,
+contrary to the stronger reading of blocker 2.
+
+**Grantor cycles deadlock leaf-peeling and need a CASCADE break.** With `owner_role → third_party`
+and `third_party → owner_role` on the same object, no edge is ever a leaf and the loop stalls. The
+fix is to detect no-progress-with-edges-remaining and issue
+`REVOKE GRANT OPTION FOR <priv> … FROM <grantee> CASCADE` as that edge's grantor, then resume
+peeling. Verified: `t_third` cleared to `{}` afterwards.
+
+**Replay must be dependency-ordered.** A grantor that is not the owner must already hold the
+privilege `WITH GRANT OPTION` before its dependent grant can be replayed. Implemented as passes
+that skip unsatisfied edges and revisit them; converged in **2 passes**.
+
+**The completion check must cover every object class.** An early version checked only
+`kind='relation'`, so column and routine edges never matched as "already done" and were re-granted
+on every pass — the loop ran to its 41-pass cap instead of converging. Correcting the check to
+cover all classes dropped it to 2 passes. A loop that reaches the right end state without
+converging is a latent defect, not a cosmetic one.
+
+### Evidence
+
+| Requirement | Result |
+|---|---|
+| Third-party grants actually removed | `t_chain` and `t_third` both reached `{}` |
+| Reconstructed grantor graph matches source | **58 live edges vs 58 source; 0 missing, 0 extra** — compared on object, column, grantee, **grantor**, privilege and grantability |
+| Mid-transaction failure rolls back | error raised mid-transaction; `t_chain` ACL byte-unchanged afterwards; `current_user` restored to `supabase_admin` |
+| Repeatability | second full run reproduced the identical end state: same 8 reset passes, same 2 replay passes, same 58/58 with 0 missing and 0 extra |
+| Exit statuses | repair transaction exit `0`; parity queries exit `0` |
+| Sanitized errors observed | `ERROR: grantor must be current user`; `ERROR: dependent privileges exist / HINT: Use CASCADE`; `WARNING: SET LOCAL can only be used in transaction blocks` |
+
+**Repeatability, stated precisely — this is not a no-op.** A second full run does **not** detect
+"already correct" and skip work. It performs the entire reset again (8 passes, including the
+CASCADE cycle-break) and the entire replay again (2 passes), and converges to a byte-identical end
+state. That is convergence to a fixed point from any starting state, which is the property the
+repair needs — but it is weaker than no-op idempotence, and the observed pass counts are recorded
+above rather than summarised as "idempotent". A reader should not infer that re-running is cheap
+or side-effect-free within the transaction; it is neither.
+
+The rollback proof is stronger than designed: a *real* error (`dependent privileges exist`, from
+revoking a chain edge out of order) aborted the transaction before the injected exception fired.
+Rollback was complete regardless of which error triggered it.
+
+### Why the blocker is retained
+
+**Two required cases are not covered by the tested algorithm.** Confirmed by direct audit after
+the run:
+
+| Class | Reset | Replay | State after the run |
+|---|---|---|---|
+| Relation | yes | yes | reproduced exactly |
+| Column | yes | yes | reproduced exactly |
+| Routine | yes | yes | reproduced exactly |
+| **Schema privileges** | **no** | **no** | `public` `nspacl` untouched |
+| **Default-privilege rules** | **no** | **no** | both `owner_role` rules still present |
+
+Leaving default-privilege rules unreset is not a partial success — it is the specific failure mode
+that produced the 2W divergence, and a target verifying clean immediately would drift again on the
+next object created. Until both classes are covered and tested to the same standard, this
+algorithm must not be used to generate a repair artifact.
+
+Also untested: `pg_type.typacl` (not captured at all), system-column ACLs, and any object class
+outside schema `public`.
 
 ## Audit corrections — 2026-08-28
 
