@@ -68,11 +68,13 @@
 -- Rows reconstructed via acldefault() are default-derived; rows from a stored ACL
 -- are explicit. Conflating them is what produced the 2W divergence.
 --
--- SYSTEM COLUMNS: section C filters attnum > 0, so ACLs on system columns
--- (ctid, xmin, cmin, xmax, cmax, tableoid — which DO exist as pg_attribute rows
--- on 17.6) are not captured. Granting privileges on a system column is not
--- ordinarily possible, but this exclusion is an assumption, not a proof, and it
--- was not exercised by validation.
+-- SYSTEM COLUMNS ARE CAPTURED. An earlier revision filtered attnum > 0 on the
+-- assumption that system columns cannot hold ACLs. That assumption was DISPROVEN
+-- experimentally on 17.6: GRANT SELECT (ctid|xmin|cmin|xmax|cmax|tableoid) all
+-- succeed, store rows in pg_attribute.attacl with negative attnum, and confer
+-- real access — has_column_privilege(role, tbl, 'ctid', 'SELECT') returns true
+-- while a non-granted user column returns false. Section C therefore covers
+-- attnum <> 0, and system-column identities appear as schema.table.ctid etc.
 --
 -- COLUMN ACLs ARE DIFFERENT and must not be reconstructed. A NULL pg_attribute
 -- .attacl means "no column-specific privileges exist; table-level applies" —
@@ -84,11 +86,11 @@
 -- ---------------------------------------------------------------------------
 -- Despite the title, this is complete only within a declared scope. Out of scope:
 --   * schemas other than 'public' (sections A-E are public-only)
---   * pg_type.typacl — privileges on TYPEs and DOMAINs are NOT captured, even
---     though section F reports 'future type' default rules. A NULL typacl
---     confers USAGE to PUBLIC, so a source that REVOKEd it is indistinguishable
---     here from one that did not. See the design note.
---   * system columns (attnum <= 0); section C captures user columns only
+--   * multirange types — PostgreSQL refuses to set their privileges
+--     ("cannot set privileges of multirange types"), directing callers to the
+--     range type instead, so they are not independently grantable.
+--   * array types and table row types — derived, not independently grantable.
+--   * (none — system columns ARE captured; see SYSTEM COLUMNS note below)
 --   * large objects, tablespaces, foreign data wrappers, databases
 --   * role passwords (deliberately — no secrets are read)
 -- Section F is the ONE exception to public-only: it also reports rules with
@@ -170,6 +172,37 @@ sch as (
   from pg_namespace n where n.nspname = 'public'
 ),
 
+-- Independently grantable types. Verified by direct test on 17.6:
+--   * enum ('e'), domain ('d'), standalone composite ('c' whose typrelid has
+--     relkind 'c'), range ('r') and base ('b') accept GRANT USAGE and store typacl.
+--   * multirange ('m') is refused: "cannot set privileges of multirange types.
+--     HINT: Set the privileges of the range type instead."
+--   * array types (typcategory 'A') are refused: "cannot set privileges of array
+--     types. HINT: Set the privileges of the element type instead." Writing
+--     GRANT ... ON TYPE x[] is a syntax error, and the array's typacl stays NULL.
+--   * relation-backed row types (composite whose typrelid has relkind <> 'c') are
+--     EXCLUDED BY THE FILTER BELOW, and that is a KNOWN COVERAGE GAP rather than a
+--     safe exclusion. An earlier revision claimed their privileges "live on the
+--     relation, not the type"; that is false. Tested: revoking USAGE on a table's
+--     row type makes has_type_privilege() false and makes a column declaration of
+--     that type fail with "permission denied for type", while the table's own
+--     relacl independently still governs reads. No such ACL exists on the LMS
+--     stack today (13 row types, none carrying a typacl), so the gap is latent.
+--     See PHASE_2K_ACL_RECOVERY_DESIGN.md, "A coverage gap this verification
+--     found in section I".
+typ as (
+  select t.oid, n.nspname, t.typname, t.typowner, t.typacl,
+         (case t.typtype when 'e' then 'enum type'      when 'd' then 'domain'
+                         when 'c' then 'composite type' when 'r' then 'range type'
+                         when 'b' then 'base type'      else t.typtype::text end) as kind
+  from pg_type t
+  join pg_namespace n on n.oid = t.typnamespace
+  where n.nspname = 'public'
+    and t.typtype in ('e','d','c','r','b')
+    and t.typcategory <> 'A'
+    and not exists (select 1 from pg_class c where c.oid = t.typrelid and c.relkind <> 'c')
+),
+
 -- Default-privilege rules, factored into a CTE so their roles feed the role
 -- closure as well as section F output. Previously inlined, which meant the roles
 -- named in default rules were invisible to the closure.
@@ -226,7 +259,20 @@ acl_rows as (
   from rel r
   join pg_attribute att on att.attrelid = r.oid
   cross join lateral aclexplode(att.attacl) a
-  where att.attnum > 0 and not att.attisdropped and att.attacl is not null
+  where att.attnum <> 0 and not att.attisdropped and att.attacl is not null
+
+  union all
+
+  select 'I. TYPE PRIVILEGES'::text, ty.kind::text,
+         (ty.nspname || '.' || ty.typname)::text,
+         pg_get_userbyid(ty.typowner)::text,
+         (case when a.grantee = 0 then 'PUBLIC'
+               else pg_get_userbyid(a.grantee) end)::text,
+         pg_get_userbyid(a.grantor)::text,
+         a.privilege_type::text, a.is_grantable::text,
+         (case when ty.typacl is null then 'default-derived' else 'explicit' end)::text
+  from typ ty
+  cross join lateral aclexplode(coalesce(ty.typacl, acldefault('T'::"char", ty.typowner))) a
 
   union all
 
@@ -313,6 +359,13 @@ select 'E. OWNERSHIP'::text, t.kind::text, t.identity::text,
              when cardinality(t.proacl) = 0 then 'ownership (acl empty: no privileges)'
              else 'ownership' end)::text
 from rtn t
+union all
+select 'E. OWNERSHIP'::text, ty.kind::text, (ty.nspname || '.' || ty.typname)::text,
+       pg_get_userbyid(ty.typowner)::text, '-'::text, '-'::text, '-'::text, '-'::text,
+       (case when ty.typacl is null then 'ownership (acl null: defaults apply)'
+             when cardinality(ty.typacl) = 0 then 'ownership (acl empty: no privileges)'
+             else 'ownership' end)::text
+from typ ty
 
 union all
 
@@ -422,6 +475,26 @@ join pg_roles mem on mem.oid = m.member
 join pg_roles grp on grp.oid = m.roleid
 where mem.rolname in (select rn from role_closure)
   and grp.rolname in (select rn from role_closure)
+
+union all
+
+-- J. SCHEMA SCOPE CONTRACT. Every non-system schema, classified. 'public' is the
+--    application ACL recovery scope. Platform schemas are Supabase-managed and
+--    must NOT be overwritten from source ACLs. Anything else is UNCLASSIFIED and
+--    a recovery run must FAIL CLOSED on it rather than silently excluding it.
+select 'J. SCHEMA SCOPE'::text, 'schema'::text, n.nspname::text,
+       pg_get_userbyid(n.nspowner)::text, '-'::text, '-'::text, '-'::text, '-'::text,
+       (case
+          when n.nspname = 'public' then 'IN SCOPE: application ACL recovery'
+          when n.nspname in ('auth','storage','realtime','graphql','graphql_public','vault',
+                             'extensions','supabase_functions','supabase_migrations','pgbouncer',
+                             'pgsodium','pgsodium_masks','net','cron','pgmq','dbdev','pgtle',
+                             'repack','tiger','tiger_data','topology','etl',
+                             '_analytics','_realtime','_supavisor')
+            then 'PLATFORM-MANAGED: do not overwrite from source ACLs'
+          else 'UNCLASSIFIED: recovery must FAIL CLOSED' end)::text
+from pg_namespace n
+where n.nspname !~ '^pg_' and n.nspname <> 'information_schema'
 
 order by 1, 3, 5, 7, 2, 4, 6, 8, 9;
 

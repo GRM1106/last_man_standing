@@ -2,7 +2,13 @@
 
 **Design only. No executable repair SQL exists, and none is authorized by this note.**
 
-> ## ⛔ THIS DESIGN IS NOT SAFE TO BUILD ON — three mechanisms are empirically disproven
+> ## ⛔ NOT AUTHORIZED TO BUILD — proven in isolated containers only
+>
+> **Read the third-round update at the end of this banner first: it supersedes the status below.**
+> The three original mechanisms were disproven and have since been replaced by mechanisms proven
+> experimentally. What remains blocked is authorization, not correctness. The history is kept in
+> full because each superseded claim explains a defect that a future implementation could
+> reintroduce.
 >
 > An adversarial review (2026-08-28, 50 agents, 18 confirmed findings) established that the core
 > repair algorithm below **does not work as specified**. Verified directly on a disposable
@@ -39,19 +45,55 @@
 > grantor, target-only excess removed, cycle broken, complete rollback, and probe objects created
 > after replay inheriting the intended privileges.
 >
-> The blocker now covers only **remaining scope gaps**, not a broken mechanism:
-> `pg_type.typacl` is still not captured (and the experiments proved types *do* receive default
-> privileges, so this is a real hole); system-column ACLs are excluded by assumption; non-public
-> schemas are out of scope; and the two halves of the algorithm — relation/column/routine, and
-> schema/default-privilege — have never been exercised together in a single run against one
-> database.
+> **UPDATE 2026-08-28 (third round) — blocker REDUCED TO AUTHORIZATION AND OUT-OF-SCOPE CLASSES.**
+> All four remaining scope gaps were closed in one integrated design-validation cycle (below,
+> "Integrated cross-class validation"). `pg_type.typacl` is now captured as section I; the
+> system-column exclusion was **disproven experimentally** and the section C predicate widened to
+> `attnum <> 0`; the vague "non-public schemas" gap was replaced by an explicit fail-closed scope
+> contract that was shown to refuse; and all six classes were exercised together in a single
+> atomic transaction against one database, proving seven properties including exact
+> effective-security parity across 3,196 privilege probes.
 >
-> **Consequence:** the *capture* format is sound and validated; the *recovery mechanism* is not.
-> Generating an executable artifact from this note would produce a repair that silently fails to
-> remove third-party grants while reporting success. The sections below are retained as the
-> starting point for a corrected design, **not** as an approved specification. Every claim they
-> make about reset, grantor preservation and convergence must be re-derived against the behaviour
-> above.
+> Verifying that work then surfaced a **fifth, previously unrecorded gap**: relation-backed row
+> types can hold an explicit, enforced `typacl` that section I excludes. It is latent on the LMS
+> stack (13 such types, none carrying an ACL) but it is a real hole, and it is listed below.
+>
+> Two further defects were found *by that cycle* and corrected before it passed. Both are recorded
+> because each would have produced a repair that reported success while leaving the target wrong:
+>
+> * **`acldefault('S', …)` returns the FOREIGN SERVER default, not the sequence default.**
+>   `pg_default_acl.defaclobjtype` spells sequences `'S'`; `acldefault()` spells them `'s'` and
+>   uses `'S'` for foreign servers. Passing `defaclobjtype` straight through yields
+>   `{owner=U/owner}` instead of `{owner=rwU/owner}`, and the rule can never reach its baseline.
+> * **A default-privilege rule's "no row" baseline is scope-dependent.** It is
+>   `acldefault(objtype, owner)` for an unscoped rule but the *empty ACL* for an `IN SCHEMA` rule.
+>   Resetting by revoking only the recorded grants leaves an empty-ACL residue row, and an empty
+>   row is **not** equivalent to no row — it suppresses the built-in default. Symmetrically, a
+>   grant-only replay cannot reproduce a source rule that is a strict subset of the built-in
+>   default (for example `FUNCTIONS` with `PUBLIC EXECUTE` revoked).
+>
+> **What the blocker still covers.** Not a broken mechanism, and not the capture:
+>
+> 1. **No executable artifact is authorized.** None exists, and this note does not approve one.
+> 2. **The algorithm has never run against a Supabase-hosted database.** Every result here comes
+>    from disposable local containers built from the LMS stack's own image. Staging and production
+>    were not contacted; the restored LMS stack was read from and never modified.
+> 3. **Object classes outside the scope contract are unimplemented** — large objects, foreign-data
+>    wrappers and servers, databases, tablespaces, languages, and configuration parameters. The
+>    scope contract fails closed on anything it cannot classify, so these produce refusals rather
+>    than silent passes.
+> 4. **Section I does not cover relation-backed row types.** The row type of a table, partitioned
+>    table, view, materialised view, foreign table or sequence can carry an explicit `typacl` that
+>    is stored *and enforced* (proven below), and the section I CTE excludes it. Nothing on the LMS
+>    stack carries such an ACL today, so this is latent rather than active — but the capture would
+>    drop one if it appeared, and the recovery would neither reproduce nor remove it.
+> 5. **Row-level security is verified separately and is never represented as an ACL.**
+>    "Effective-security parity" below means ACL parity, proven with `has_*_privilege`. RLS state
+>    and policies are covered by their own artifacts — `supabase/discovery/phase_2k_staging_discovery.sql`
+>    reports `relrowsecurity`, `relforcerowsecurity` and per-relation `pg_policy` counts and
+>    enumerates the policies, and `supabase/verification/lms_integrity_phase_1_verification.sql`
+>    asserts RLS is enabled on `player_picks` and `pot_gameweeks`. Two databases can pass every
+>    check in *this* note and still differ in their policies.
 >
 > The remaining findings are recorded inline and in "Audit corrections" at the end.
 
@@ -421,8 +463,9 @@ overstated it.
 
 | Item | State |
 |---|---|
-| Capture query | written; executed and deterministic on the local stack **and** in a synthetic container. Section C field-asserted; A, B, D–H structurally validated only |
+| Capture query | sections A–J. Executed and byte-deterministic on the local stack, a synthetic container, an integrated synthetic database and the restored LMS stack. Sections C and I field-asserted; A, B, D–H, J structurally validated, J additionally proven to fail closed |
 | Output format | proposed, **awaiting review** |
+| Recovery algorithm | proven in isolated containers across all six supported classes — seven properties, one atomic transaction. **Still not generated as an executable artifact, and not authorized to be** |
 | Recovery artifact | **not designed in executable form, not generated, not applied** |
 | Gate | `NOT READY` — unchanged by this note |
 
@@ -598,6 +641,190 @@ passes plus a full default-rule sweep) and the entire replay (2 schema passes pl
 default-rule sweep), converging to an identical state: 13/13 and 10/10, 0 missing and 0 extra.
 As with the relation algorithm, this is convergence to a fixed point, not skip-if-correct.
 
+## Integrated cross-class validation — 2026-08-28, isolated container only
+
+Closes the four scope gaps left by the previous round, in one cycle, on a disposable
+PostgreSQL 17.6 container (`public.ecr.aws/supabase/postgres:17.6.1.165`, the same image as the
+LMS stack). Nothing in this section ran against staging or production. The restored LMS stack was
+read from twice and never modified. The synthetic container and its volume were uniquely named
+and removed afterwards.
+
+### Gap 1 — grantable type classes and `pg_type.typacl`
+
+Determined by construction rather than assumption:
+
+| Type class | `typacl` | Tested behaviour |
+|---|---|---|
+| enum `e`, domain `d`, standalone composite `c` (`typrelid` → `relkind 'c'`), range `r`, base `b` | stored | `GRANT USAGE` accepted and recorded; selected by the section I CTE |
+| multirange `m` | never | `GRANT USAGE ON TYPE public.t_multirange` → `ERROR: cannot set privileges of multirange types` / `HINT: Set the privileges of the range type instead.` |
+| array (`typcategory 'A'`) | never | `GRANT … ON TYPE x[]` is a **syntax error**; granting on the internal name `"_x"` → `ERROR: cannot set privileges of array types` / `HINT: Set the privileges of the element type instead.` The array's `typacl` stays NULL and the element type's ACL is unchanged |
+| relation-backed row type `c` (`typrelid` → `relkind <> 'c'`) | **stored and enforced** | **excluded by the current CTE — this is a coverage gap, see below** |
+
+Section I captures the storing classes and marks a NULL `typacl` `default-derived`, since types
+have a non-empty built-in default (`{=U/owner,owner=U/owner}`) that a restore can diverge from
+silently.
+
+#### A coverage gap this verification found in section I
+
+The earlier exclusion of table row types was documented as "privileges live on the relation, not
+the type". **That reason is false**, and was disproven by direct test on 17.6:
+
+* `GRANT USAGE ON TYPE public.rt_tbl TO tr` **succeeded** and stored a `typacl` on the row type,
+  separate from and additional to the table's `relacl`.
+* `REVOKE USAGE ON TYPE public.rt_tbl FROM PUBLIC` flipped
+  `has_type_privilege('tu', 'public.rt_tbl'::regtype, 'USAGE')` from **true to false**.
+* It is **enforced**, not merely reported: with USAGE revoked, `CREATE TEMP TABLE probe(x
+  public.rt_tbl)` failed with `ERROR: permission denied for type rt_tbl`, while
+  `select count(*) from public.rt_tbl` still succeeded under the table's own `relacl`. The two
+  ACLs are independent.
+
+The section I CTE excludes every composite whose `typrelid` names a `pg_class` entry with
+`relkind <> 'c'` — the row types of tables, partitioned tables, views, materialised views,
+foreign tables and sequences. Such a type can therefore carry an explicit, enforced ACL that the
+capture drops silently, and that a recovery built on this capture would neither reproduce nor
+remove.
+
+**Exposure today is nil, but the hole is real.** On the restored LMS stack `public` holds 13
+relation-backed row types and **none** carries an explicit `typacl`; no public type of any class
+does. The gap is latent, not active — but a source database could acquire one, and a divergent
+restore could add one that the recovery would never remove.
+
+Standalone composite types are unaffected and remain covered: `t_comp`, whose `typrelid` has
+`relkind 'c'`, is selected by the CTE. This gap is **not** closed by this cycle and is carried in
+the banner.
+
+### Gap 2 — system-column ACLs: the exclusion was wrong
+
+The previous note excluded `attnum <= 0` by assumption. Tested directly:
+
+* `GRANT SELECT (ctid | xmin | cmin | xmax | cmax | tableoid)` **all succeeded** and produced
+  negative-`attnum` rows in `pg_attribute.attacl`.
+* `has_column_privilege(role, table, 'ctid', 'SELECT')` returned **true** while the same role's
+  ordinary column `a` returned **false** — the grant is real and independently effective.
+
+The section C predicate is now `attnum <> 0 and not attisdropped and attacl is not null`.
+`attnum = 0` (the whole-row pseudo-attribute) is still excluded; it never carries an ACL.
+
+Section C's assertions were re-run because its structure changed. Against purpose-built fixtures
+the predicate emitted **exactly** four rows and nothing else:
+
+| Fixture | `attnum` | Emitted | Why |
+|---|---|---|---|
+| `c_grant.a` SELECT | 1 | yes | ordinary column grant |
+| `c_grant.b` UPDATE WITH GRANT OPTION | 2 | yes | grant option preserved |
+| `c_sys.ctid` SELECT | -1 | yes | **system column, newly covered** |
+| `c_sys.xmin` SELECT | -2 | yes | **system column, newly covered** |
+| `c_plain` (no column grants) | — | no | `attacl` NULL, nothing to derive |
+| `c_drop.z` (granted, then dropped) | — | no | `attisdropped` |
+| `c_empty.a` (granted, then fully revoked) | — | no | `attacl` returns to NULL |
+
+### Gap 3 — explicit fail-closed scope contract
+
+The vague "non-public schemas are out of scope" is replaced by section J, which classifies every
+schema outside `pg_*` and `information_schema` as one of `IN SCOPE`, `PLATFORM-MANAGED: do not
+overwrite from source ACLs`, or `UNCLASSIFIED: recovery must FAIL CLOSED`, and by a matching
+preflight in the recovery algorithm. Proven end-to-end: with an unclassified schema `app_custom`
+present, the capture labelled it `UNCLASSIFIED: recovery must FAIL CLOSED` and the recovery
+aborted with `PREFLIGHT: unclassified schema present - fail closed`, leaving all five divergence
+measures unchanged. The classification is not advisory — it stops the run.
+
+### Gap 4 — one integrated database, one transaction, all six classes
+
+A single synthetic database carrying every supported class at once: nested role memberships
+(`grp_outer` → `grp_inner`), a third-party grant chain (`own_r` → `third` WITH GRANT OPTION →
+`rb`), a schema-privilege chain and cycle, column grants including a system column, a routine,
+four grantable type classes, and default-privilege rules across three owners including both an
+empty rule and a rule that is a strict subset of the built-in default.
+
+Baseline: **683 capture rows**, byte-identical across two consecutive runs — 40 ACL edges
+(relation 15, schema 13, type 6, column 3, routine 3), 7 default-privilege groups, 10 default
+edges, and a **3,196-probe effective-security matrix** built from `has_table_privilege`,
+`has_sequence_privilege`, `has_function_privilege`, `has_type_privilege`, `has_schema_privilege`
+and `has_column_privilege`, each probed with and without `WITH GRANT OPTION`.
+
+Divergence was then injected in **both directions in every class**: 8 target-only edges
+(schema, relation incl. a second-level grant made under an injected grant option, column, routine,
+type), 8 source-only edges (including one on the third-party chain and one on a system column),
+14 default-edge differences and 5 default-group differences — **69 effective probes diverged**.
+
+The reset/replay then ran in one transaction under `pg_advisory_xact_lock`, ordered reset
+types/routines/columns → relations (leaf-peeling, `REVOKE GRANT OPTION FOR … CASCADE` to break
+cycles) → schema last, then replay schema first → objects → default rules. Reset converged in
+4 passes (relations) and 3 (schema); replay in 2 and 2.
+
+| # | Property | Result |
+|---|---|---|
+| 1 | Exact effective-security parity | **PASS** — 3,196 / 3,196 probes identical, both directions, cardinality unchanged |
+| 2 | Permitted provenance parity only | **PASS**, and stronger than required — provenance was *exact*: 448 `explicit` and 8 `default-derived` rows, unchanged |
+| 3 | Exact grantor graph | **PASS** — all 40 grantor-bearing edges identical, including the one third-party edge `i_tbl → rb GRANTED BY third` |
+| 4 | Exact default-rule parity | **PASS** — 7 groups (1 with an empty ACL) and 10 edges identical |
+| 5 | Removal of all target-only excess | **PASS** — 0 target-only edges; role `excess` holds no privilege in any class |
+| 6 | Rollback after an injected mid-run failure | **PASS** — failure raised after the final replay stage; all five divergence measures unchanged |
+| 7 | Repeated-run fixed-point convergence | **PASS** — runs 2 and 3 reproduced identical pass counts (4/3/2/2) and left divergence at zero |
+
+Independently of the internal measures, the amended capture re-run after the repair was
+**byte-identical to the 683-row pre-divergence reference — zero differences across all ten
+sections**.
+
+Property 6 was demonstrated twice, once unintentionally: the first integrated attempt aborted on a
+genuine defect (below) and left every measure unchanged, before the deliberate injection did the
+same.
+
+### Two defects this cycle found and corrected
+
+Both were in the default-privilege phase, and both are recorded in the banner because either
+would have produced a repair that reported success while leaving the target wrong.
+
+1. **`acldefault()` object-type codes do not match `pg_default_acl.defaclobjtype`.** Sequences are
+   `'S'` in `defaclobjtype` but `'s'` in `acldefault()`, where `'S'` means *foreign server*. The
+   uncorrected code computed `{owner=U/owner}` where the true sequence default is
+   `{owner=rwU/owner}`, so the rule could never be driven to its baseline. This is the same
+   type-code inconsistency already recorded for `relkind`, reaching a third catalogue.
+2. **The "no row" baseline for a default-privilege rule is scope-dependent.** Proven with probe
+   rules created and then reset:
+
+   | Rule scope | Row materialises as | Row is deleted when its ACL becomes |
+   |---|---|---|
+   | unscoped (`ALTER DEFAULT PRIVILEGES FOR ROLE x`) | built-in default **plus** the grant | `acldefault(objtype, owner)` |
+   | `IN SCHEMA s` | the grant **only** | the empty ACL |
+
+   Two consequences follow, and the algorithm was corrected for both. Revoking only the recorded
+   grants leaves an empty-ACL residue row on unscoped rules for object types whose built-in
+   default is non-empty (`TYPES`, `FUNCTIONS`); that residue is **not** equivalent to no row,
+   because it suppresses the built-in `PUBLIC` privilege on every future object. And a grant-only
+   replay cannot reproduce a source rule that is a strict *subset* of the built-in default. Each
+   group is therefore driven to an exact target ACL — revoke `baseline \ source`, then grant
+   `source \ baseline` — with the baseline chosen by scope.
+
+### One hazard tested and found not to exist
+
+Fully revoking every privilege leaves `relacl`, `typacl`, `proacl` and `nspacl` holding an **empty
+array rather than NULL** (`attacl` alone reverts to NULL). Since `coalesce` cannot rescue an empty
+array, this looked like it would abort the capture on `aclexplode`. It does not: a
+catalogue-stored empty ACL is *one-dimensional* with cardinality 0, which `aclexplode` accepts,
+returning zero rows. The capture already handles the state correctly, emitting an ownership row
+annotated `(acl empty: no privileges)` — which is the right distinction, since an empty ACL means
+"nobody, not even the owner" while NULL means "built-in defaults apply".
+
+The zero-dimensional array that *does* raise `ACL arrays must be one-dimensional` is produced only
+by a text round-trip (`relacl::text::aclitem[]`). **Implementation note for any future artifact:**
+never round-trip a captured ACL through text and cast it back; carry `aclitem[]` directly, or
+guard every explode with a cardinality check.
+
+### Capture validation runs
+
+| Target | Runs | Result |
+|---|---|---|
+| Integrated synthetic database, before divergence | 2 | exit 0, no stderr, **byte-identical**, 683 rows, sections A–J all present |
+| Integrated synthetic database, after repair | 2 | exit 0, no stderr, **byte-identical**, and identical to the pre-divergence reference |
+| Restored LMS stack (`supabase_db_last_man_standing`), read-only | 2 | exit 0, no stderr, **byte-identical**, 854 rows |
+
+On the LMS stack all 11 non-system schemas classified — 1 `IN SCOPE`, 10 `PLATFORM-MANAGED`, none
+`UNCLASSIFIED` — so the scope contract would permit a run there. Sections C and I returned empty,
+and that emptiness was confirmed against the catalogues directly rather than assumed: `public`
+holds **0** columns with a non-NULL `attacl` and **0** grantable-class types. The two new sections
+are therefore untested against real LMS data by absence of subject matter, not by omission.
+
 ## Audit corrections — 2026-08-28
 
 An adversarial review (50 agents, 4 lenses) confirmed 18 findings after refutation. Classification
@@ -627,7 +854,18 @@ because two review agents ran while the safety classifier was unavailable.
 
 ## Status
 
-The **capture** is sound and its corrections are applied. The **recovery mechanism is not safe to
-build on** — see the banner at the top. The next step is not generating repair SQL; it is
-redesigning reset, grantor preservation and replay ordering against the demonstrated PostgreSQL
-behaviour, then re-reviewing.
+The **capture** is sound, its corrections are applied, and it now covers type privileges, system
+columns and an explicit fail-closed schema-scope contract. The **recovery algorithm has been
+proven in isolation** across all six supported classes — exact effective-security parity, exact
+grantor graph, exact default-rule parity, complete removal of target-only excess, atomic rollback
+and fixed-point convergence — after two further defects found during that cycle were corrected.
+
+What is still blocked is **authorization, plus one open coverage gap**: no executable artifact
+exists or is approved; the algorithm has never run against a Supabase-hosted database; object
+classes outside the scope contract are unimplemented and refuse rather than pass; section I does
+not yet cover relation-backed row types, which can hold an enforced `typacl` (latent on the LMS
+stack, but real); and row-level security is verified by separate artifacts rather than represented
+as an ACL here.
+
+The next step is review of this note and of the amended capture. Generating repair SQL remains a
+separate decision that this note does not make.
