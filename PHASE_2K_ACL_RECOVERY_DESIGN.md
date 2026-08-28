@@ -1,0 +1,352 @@
+# Phase 2K — ACL Recovery Mechanism: Design Note
+
+**Design only. No executable repair SQL exists, and none is authorized by this note.**
+
+This describes how a later recovery artifact would reproduce a source database's privilege state
+on a target whose defaults differ. It is written to be reviewed *before* anything is generated,
+because the defect it addresses was caused by trusting a generated artifact whose assumptions
+were never stated.
+
+## The problem this must solve
+
+`PHASE_2K_DISCOVERY_EVIDENCE.md` section 2W records the failure. A logical restore reproduced
+staging's schema and data exactly, but not its privileges:
+
+| | Staging | Restored | |
+|---|---:|---:|---|
+| Table grants | 18 | 26 | +8 |
+| Routine grants | 34 | 84 | +50 |
+
+`schema.sql` was not missing its ACLs — it contains 67 `GRANT` and 39 `REVOKE` statements. Those
+statements are **source-relative**: `pg_dump` emits what is needed starting from the defaults it
+assumes the target has, and does not revoke what a different target grants by default. The result
+composes rather than replaces:
+
+```
+target_actual  =  target_defaults  ∪  dump_grants        ⟵ what happens now
+target_wanted  =  source_actual                          ⟵ what is required
+```
+
+**Scope of the observed evidence.** *This observed divergence was additive and toward more
+privilege*, concentrated in routine grants where default `EXECUTE` to `PUBLIC` applies to every
+restored function. That is what the 148-vs-206 comparison established — it is **not** a general
+law. A target with narrower defaults than the source would diverge the other way, and this design
+must not assume the error is one-directional.
+
+**The fix is to stop assuming a baseline and start asserting one.**
+
+## Source of truth
+
+`supabase/discovery/phase_2k_acl_capture.sql` — strictly read-only, nine text columns per row
+across eight sections: schema, relation, column, routine privileges; ownership; default-privilege
+rules; observed grantees; role security context.
+
+Properties that matter to this design:
+
+- **Routines are identified by schema, name and identity arguments**; columns by
+  `schema.table.column`. Never OIDs, never `information_schema.specific_name`, whose numeric
+  suffix differs between environments.
+- **`acl_source` distinguishes `explicit` from `default-derived`.** A NULL ACL means the built-in
+  defaults apply, not that no privileges exist.
+- **Column ACLs are never reconstructed.** A NULL `attacl` means no column-specific grants exist;
+  there are no column defaults to derive.
+- **Role security context is captured** because a privilege's real reach depends on membership
+  and inheritance. **No secrets**: `pg_authid` is never read and `rolpassword` never selected.
+
+## How the recovery artifact would work
+
+### 1. Reset each audited object to a known baseline
+
+Rather than assume the target's starting privileges, **assert** them.
+
+Two different enumerations are involved, and conflating them is the trap:
+
+| Question | Answered by |
+|---|---|
+| *Which objects must exist and be reset?* | the **source** capture's ownership section (E) |
+| *Which grantees must be revoked from each object?* | the **target's own current ACL**, read at repair time |
+
+**The revoke list must come from the target, not the source.** For each object, the repair
+inspects that object's current ACL on the target and revokes every non-owner grantee it finds —
+including grantees that appear nowhere in the source capture.
+
+**Source-only grantee enumeration is insufficient**, and this is the crux of the whole design. A
+grantee the target holds but the source does not will never appear in the source capture, so a
+reset driven by source grantees cannot revoke it. That excess is exactly the 2W defect: the
+restored copy held privileges the source never had. Reset must remove what it does not recognise,
+not merely what it was told about.
+
+Source ownership still drives the object list, because a privilege query alone cannot enumerate
+objects: an object whose ACL is empty produces no privilege rows at all. Section E lists every
+object unconditionally, so nothing is skipped.
+
+The reset covers the schema itself, relations, columns, routines, **and default-privilege
+rules** (§5).
+
+### 2. Re-grant exactly the captured privileges
+
+Replay the capture's rows: grantee, privilege type, and `WITH GRANT OPTION` where `is_grantable`
+is true. `PUBLIC` is a real grantee and must be reproduced as such.
+
+**Decision — `default-derived` rows are replayed explicitly.** This is now settled, not open:
+
+- Every current-object privilege in the capture is granted explicitly by the artifact, whether the
+  source held it explicitly or derived it from defaults.
+- This removes all dependence on the target's defaults, which is the entire point.
+- **Consequence, recorded deliberately:** `acl_source` will differ for those rows after recovery.
+  A privilege that read `default-derived` at the source will read `explicit` at the target,
+  because it is now stored in the object's ACL rather than implied by a NULL ACL.
+
+That difference is **intentional and provenance-only**. It changes how a privilege is recorded,
+not who holds it. It is pre-approved under the provenance-parity contract in §7.
+
+### 3. Never change ownership
+
+The artifact issues no `ALTER … OWNER`, no `REASSIGN OWNED`, and no `SET SESSION AUTHORIZATION`.
+
+Ownership is captured to be **verified**, not modified. An owner mismatch is a stop condition
+(§6), not something to correct silently — changing ownership alters who implicitly holds full
+rights, a larger change than the drift being repaired.
+
+### 4. Depend on no target default privileges
+
+The artifact must be correct on a target with any default-privilege configuration:
+
+- It never relies on an object arriving with useful defaults.
+- It never relies on defaults being absent.
+- Every privilege the source has is granted explicitly.
+- Every privilege the source lacks is revoked explicitly, whether or not the target granted it.
+
+Reset-then-grant delivers this. Grant-only cannot: it has no way to remove what it did not add,
+which is the 2W failure.
+
+### 5. Default-privilege rules are reset and reproduced exactly
+
+Section F is **in scope for verification**, not excluded from it. The target's existing
+`ALTER DEFAULT PRIVILEGES` rules are reset, and the source's rules are reproduced exactly.
+
+**The same target-side enumeration rule as §1 applies here.** The rules to remove are enumerated
+from the **target's own `pg_default_acl`**, not from the source capture. A default-privilege rule
+the target has and the source does not would otherwise survive the repair untouched — and it is
+precisely such a rule that produced the 2W divergence in the first place. Rules absent from the
+source are removed; rules present in the source are reproduced exactly, including their
+`defaclrole`, grantee, privilege set and grantability.
+
+This matters beyond tidiness. Leaving a target rule in place would re-introduce excess privileges
+on any object created *after* recovery, so a target that verified clean immediately would drift
+again on the next migration — a repair that appears to work and silently stops working.
+
+### 6. Grantor identity is preserved by a controlled grantor context
+
+The grantor is part of the privilege's identity: it determines who may later revoke it, and
+`REVOKE` issued by the wrong role silently does nothing.
+
+**Mechanism.** Privileges are replayed under a controlled grantor context — `GRANT … GRANTED BY
+<recorded grantor>` where available, falling back to a scoped role context established *only*
+around privilege replay. Constraints:
+
+- The controlled context applies to **privilege replay only**. It never spans object creation or
+  alteration, so it cannot change ownership (§3).
+- It is established and released within the single transaction of §7.
+- **If the recorded grantor cannot be reproduced — the role is absent, or the executing role
+  cannot legitimately act as it — the artifact fails closed and rolls back.** It does not
+  substitute a different grantor, and it does not fall back to the executing role. A privilege
+  recorded as granted by one role but installed as granted by another is a provenance difference
+  that is *not* pre-approved, because it changes who can revoke it later.
+
+### 7. Verification — two explicit contracts
+
+Whole-output byte-equality is **not achievable** and is not the rule. §2 deliberately changes
+`acl_source` for replayed default-derived rows, so a naive full-output diff would always fail and
+would train reviewers to ignore it. Two contracts replace it:
+
+**Contract 1 — effective-security parity. Must match exactly. Any difference is a failure.**
+
+The parity key is **`section` + `object_kind` + `object_identity` + `grantee` + `privilege_type`**.
+Both `section` and `object_kind` are part of the key explicitly: without them, a column privilege
+on `public.pots.status` and a relation privilege could collide in comparison, and a row that moved
+between sections — say a privilege that became default-derived rather than explicit on a
+different object kind — would diff as equal when it is not.
+
+| Field | Why it is security-relevant |
+|---|---|
+| **section** | which catalogue dimension the privilege lives in; part of the key |
+| **object_kind** | table vs column vs routine changes what the privilege permits; part of the key |
+| object identity | which object is exposed |
+| owner | who implicitly holds full rights |
+| grantee | who holds the privilege |
+| privilege type | what they may do |
+| is_grantable | whether they may pass it on |
+| default-privilege rules (section F) | what future objects will expose |
+| role existence, attributes, membership, inheritance (section H) | the real reach of every grant, including `admin_option`, `inherit_option` and `set_option` |
+
+**Contract 2 — provenance parity. Must match exactly *or* be a specifically documented,
+pre-approved difference.**
+
+| Field | Pre-approved difference |
+|---|---|
+| `acl_source` | `default-derived` → `explicit` for current-object privileges replayed under §2. **This is the only pre-approved difference.** |
+| grantor | **none pre-approved** — see §6; a grantor mismatch is a failure |
+
+Anything not in that table is a failure, including any `acl_source` change other than the one
+named. "Pre-approved" means enumerated in this note before the run, not judged afterwards.
+
+**Method.** Re-run `phase_2k_acl_capture.sql` against the repaired target and diff against the
+source capture, section by section. Contract 1 fields are compared for exact equality. Contract 2
+fields are compared, and every difference must match the pre-approved table. Row-count equality is
+insufficient — the full row sets are diffed. This is why the output contract is fixed, fully
+text-cast and totally ordered.
+
+### 8. Transactional execution
+
+The repair runs as one transaction. Nothing is left half-applied:
+
+```
+begin
+  acquire scoped advisory lock          -- pg_advisory_xact_lock, released on commit/rollback
+  run all preflight checks (§6)         -- before any change
+  reset privileges and default rules    -- §1, §5
+  replay privileges and default rules   -- §2, §5, §6
+  verify parity                         -- §7, both contracts, inside the transaction
+commit  -- only if every check and both contracts pass
+rollback -- otherwise, completely
+```
+
+Points that are not negotiable:
+
+- **The advisory lock is transaction-scoped**, so a crash cannot strand it, and it prevents two
+  concurrent repairs interleaving resets and grants.
+- **Preflight runs before the first reset**, so a failure cannot leave the target in a state that
+  is neither the source's nor its own. The 2Q failure — a partial `roles.sql` that committed three
+  statements before erroring — is the precedent.
+- **Verification runs inside the transaction, before commit.** Verifying after commit would mean
+  discovering a bad state that is already permanent.
+- Any failure at any stage rolls back **completely**. There is no partial success.
+
+### 9. Idempotence
+
+Running it twice leaves the same state as running it once; running it against an already-correct
+target is a no-op in effect.
+
+Reset-then-grant is naturally idempotent: the reset drives to a known baseline from any starting
+point, and the grants are absolute assertions rather than deltas. The artifact contains no "if not
+already granted" conditionals — those reintroduce dependence on the starting state.
+
+### 10. The capture must be whole
+
+The artifact is generated from a complete, unmodified capture. Editing, truncating, splitting or
+hand-assembling a capture is prohibited, and a repair generated from one must not be run. This
+mirrors the rule already enforced for the dump itself: restored whole, or the attempt is recorded
+as failed. A superuser-context repair driven by hand-edited input is precisely the combination the
+runbook's security boundary rules out.
+
+## Security-relevant vs provenance-only differences
+
+| Difference | Class | Consequence |
+|---|---|---|
+| Grantee gains or loses a privilege | **security** | fails Contract 1 |
+| `is_grantable` differs | **security** | fails Contract 1 — changes who may re-grant |
+| Owner differs | **security** | fails Contract 1 and preflight |
+| Default-privilege rule differs | **security** | fails Contract 1 — future objects diverge |
+| Role absent, or membership/inheritance differs | **security** | fails Contract 1 — changes reach |
+| Column privilege differs | **security** | fails Contract 1 |
+| `acl_source` `default-derived` → `explicit` for replayed rows | provenance-only, **pre-approved** | expected under §2 |
+| Grantor differs | **security-adjacent, NOT pre-approved** | fails Contract 2 — determines who can revoke |
+
+Grantor is listed as security-adjacent deliberately: it grants no additional access by itself, but
+it controls revocability, so treating it as cosmetic would leave privileges that cannot later be
+removed by the expected role.
+
+## What this design does not do
+
+- It does not restore role passwords. Recovery-envelope item 7 (`--no-role-passwords`) is a
+  separate, still-open gap, and the capture deliberately reads no secrets.
+- It does not create or alter roles. Missing roles are a stop condition.
+- It covers schema `public` only. Other schemas, large objects, tablespaces, foreign data wrappers
+  and databases are out of scope; extending scope requires extending the capture **first**.
+- It is not a substitute for verifying schema and data, which section 2U covers.
+
+## Capture validation — local stack only, 2026-08-28
+
+The capture was executed **against the restored local PostgreSQL 17.6 stack only**
+(`supabase_db_last_man_standing`). Staging and production were not contacted. Only structural
+counts and outcomes are recorded here; the raw CSV is held outside the repository at `700`/`600`
+and is not committed.
+
+| Check | Result |
+|---|---|
+| Exit status, both runs | `0`, empty stderr |
+| Determinism | two runs **byte-identical** (99,975 bytes, matching SHA-256) |
+| Columns | exactly **9**, header as specified |
+| Rows | **837** |
+| Ordering | re-sorting by `1,3,5,7,2,4,6,8,9` reproduces file order exactly |
+| Routine identities | 166 rows, all identity-argument form, **zero** OID suffixes |
+| Secrets | zero matches for password/passwd/secret/token/hash/md5/scram/`sbp_`/`eyJ` |
+| Expected roles | `PUBLIC`, `anon`, `authenticated`, `service_role` all present in G and H |
+| Membership controls | 25/25 rows carry grantor, `admin_option`, `inherit_option`, `set_option` |
+| Closure integrity | 20 roles closed, 25 edges, 18 distinct endpoints — **all inside the closed set** |
+| `PUBLIC` handling | absent from the closed role set, as a pseudo-grantee should be |
+| Grantee resolvability | every A–D grantee is `PUBLIC` or a member of the closed set |
+
+Section counts: A 7 · B 452 · C **0** · D 166 · E 58 · F 96 · G 10 · H 48.
+
+### Section C returned zero rows on the LMS stack — correctly
+
+`public` on the restored LMS stack has **0** columns with a non-null `attacl`, while 17 columns
+elsewhere in that database do. The catalogue column is populated and readable; there are simply no
+column-level grants in `public`, so section C emitting nothing is the designed behaviour.
+
+That left the column-privilege path **unexercised**, which is not the same as proven. It was
+therefore validated separately, below.
+
+## Section C validation — synthetic container, 2026-08-28
+
+Validated in a **separate, uniquely named, disposable PostgreSQL 17.6 container**
+(`pg17-aclc-validate`, own volume, synthetic credentials and data only). The restored LMS stack
+was neither used nor modified. The capture ran **unmodified** — same file, same checksum.
+
+Synthetic fixture: roles `anon`/`authenticated`/`service_role` (created only where absent, since
+the Supabase image already ships them), one table `public.synthetic_widget` with four columns, a
+column `SELECT` for `anon` on one column, and a column `UPDATE` **with grant option** for
+`authenticated` on another — deliberately exercising both grantability states. Two columns were
+left with a NULL `attacl` to prove they are not invented.
+
+| Check | Result |
+|---|---|
+| Exit status, both runs | `0`, empty stderr |
+| Determinism | two runs **byte-identical**, 23,019 bytes |
+| Columns | 9 |
+| Section C appears | **yes — exactly 2 rows**, matching the 2 columns holding an `attacl` |
+| Identity form | `public.synthetic_widget.public_label` / `.extra_col` — **no OID** |
+| Owner / grantee / grantor | `postgres` / `anon` and `authenticated` / `postgres` — all correct |
+| Privilege type | `SELECT` and `UPDATE` — correct per column |
+| `acl_source` | `explicit` on both, as designed for column ACLs |
+| Grantability | `false` and **`true`** — correctly differentiated |
+| NULL-`attacl` columns | **not emitted** — no invented rows |
+
+All 14 field-level assertions passed.
+
+Section counts in the synthetic environment: A 7 · B 32 · **C 2** · D 0 · E 2 · F 96 · G 10 · H 42
+(191 rows). Every section executed successfully. D is legitimately empty — the synthetic database
+has no `public` routines — which additionally demonstrates that an empty section is an absence of
+matching objects, not a failure.
+
+Teardown: the throwaway container and its volume were removed by name-guarded commands that refuse
+any other target; synthetic CSVs were deleted and none entered the repository. The LMS container
+was confirmed **byte-identical to its pre-test baseline** — same container ID, same
+`StartedAt`, 12 tables, 41 functions, 0 column ACLs, and no synthetic object present.
+
+**The capture is now validated for all sections A–H.**
+
+## Status
+
+| Item | State |
+|---|---|
+| Capture query | written, **validated on the local stack** (section C unexercised) |
+| Output format | proposed, **awaiting review** |
+| Recovery artifact | **not designed in executable form, not generated, not applied** |
+| Gate | `NOT READY` — unchanged by this note |
+
+The next step is review of the capture's output contract. Generating repair SQL before that
+contract is agreed would repeat the original mistake: an artifact whose assumptions were never
+examined.
