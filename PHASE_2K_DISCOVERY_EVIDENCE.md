@@ -2068,3 +2068,86 @@ explicitly `READY` and the exact plan is separately approved.
 **Current state (2026-08-28):** the backup/restore gate is `READY`, limited to empty staging
 (sections 2X–2Y). The exact migration plan is still not approved. Therefore no migration, function
 deployment, secret configuration or cron change is authorized.
+
+## 9. Authenticated SECURITY DEFINER RPC review
+
+Recorded 2026-08-28. This was a read-only function-by-function authorization review. No
+migration was applied and neither staging nor production was contacted during the review.
+
+### Review basis
+
+- The restored staging copy exposes 32 routines to `authenticated`. Catalogue inspection found
+  all 32 to be `SECURITY DEFINER`, owned by `postgres`, with an empty fixed `search_path`.
+- The effective current grants are exactly 32 for `authenticated` and 32 for `postgres`; no
+  current routine in this RPC set is executable by `anon` or `PUBLIC`.
+- Migration source for Phase 1 and 2A–2J was then reviewed to cover the intended post-catch-up
+  surface, including renamed wrappers and internal helpers. Base implementations, trigger
+  routines and service-role-only provider routines are explicitly revoked from
+  `authenticated`.
+- The conclusion below is a source-and-catalogue authorization review. It does not claim that
+  every business-rule branch has been exercised by runtime tests.
+
+### Function-by-function classification
+
+| Function | Intended authenticated path | Authorization finding |
+|---|---|---|
+| `add_player_to_pot(uuid,uuid)` | admin | Calls `is_current_user_admin()` before mutation |
+| `assign_random_missing_picks(uuid,integer,boolean)` | admin | Admin-gated wrapper |
+| `claim_buy_back(uuid)` | player self-service | Uses `auth.uid()`, membership, state and deadline checks |
+| `claim_pot_payment(uuid)` | player self-service | Updates only the caller's membership after eligibility checks |
+| `complete_pot_with_winner(uuid,uuid)` | disabled compatibility RPC | Current implementation is admin-gated; Phase 2G replacement always refuses manual completion |
+| `confirm_buy_back(uuid,uuid)` | admin | Admin check precedes player mutation |
+| `confirm_team_pick(uuid,bigint,bigint)` | player self-service | Caller membership, payment, approval, deadline, fixture and duplicate checks |
+| `create_fixture_result_override(bigint,integer,integer,text,text,text)` | admin | Admin check precedes validation, locks, mutation and audit writes |
+| `create_pot(text,text,integer,integer,integer[],uuid[])` | admin | Admin check precedes creation |
+| `delete_draft_pot(uuid,text)` | admin | Admin-gated destructive operation |
+| `fill_remaining_pot_gameweeks(uuid)` | admin | Admin-gated mutation |
+| `get_admin_fixture_results(text)` | admin read | Refuses non-admin callers before returning data |
+| `get_admin_pick_overview(uuid,integer)` | admin read | Refuses non-admin callers before returning player details |
+| `get_gameweek_deadline(uuid,integer)` | member/admin read | Requires membership or admin status |
+| `get_lms_automation_status(uuid)` | admin read | Returns admin data only for an admin; a non-admin receives `null` |
+| `get_lms_operations_health()` | admin read | Returns operational data only for an admin; a non-admin receives `null` |
+| `get_my_dashboard()` | player self read | Anchored to `auth.uid()` |
+| `get_my_pot_history(uuid)` | player self/member read | Pot membership/admin gate; returned picks remain anchored to `auth.uid()` |
+| `get_my_pot_review_state(uuid)` | member/admin read | Member view is caller-scoped; evidence and impact details are admin-only |
+| `get_my_team_availability(uuid)` | player self/member read | Membership and caller checks |
+| `get_p1_provenance_backfill_report()` | admin read | Refuses non-admin callers |
+| `get_player_provider_notice()` | authenticated status read | Intentionally returns only a safe player-facing provider-delay notice |
+| `get_pot_completion(uuid)` | member/admin read | Requires membership or admin status |
+| `get_pot_rounds(uuid)` | member/admin read | Requires membership or admin status |
+| `get_pot_selection(uuid)` | player self/member read | Membership and caller checks |
+| `get_pot_standings(uuid)` | member/admin read | Requires membership/admin; non-admin fields and picks are conditionally hidden |
+| `is_current_user_admin()` | authenticated identity probe | Returns a boolean derived from service role or the caller's profile; grants no authority itself |
+| `preview_fixture_result_override(bigint,integer,integer,text,text)` | admin | Refuses non-admin callers before impact data is produced |
+| `preview_lms_review_resolution(uuid,text,uuid[])` | admin | Refuses non-admin callers |
+| `process_pot_gameweek(uuid,integer,boolean)` | admin | Each effective wrapper retains an admin gate before processing |
+| `remove_player_from_pot(uuid,uuid)` | admin | Admin check precedes mutation |
+| `reset_draft_test_pot(uuid)` | admin/test-only | Admin check and draft/test-mode restrictions retained through wrappers |
+| `reset_test_gameweek(uuid,integer)` | admin/test-only | Admin-gated wrapper |
+| `resolve_lms_review_case(uuid,text,text,text,uuid[])` | admin | Admin check, version token and locking precede mutation |
+| `revoke_buy_back(uuid,uuid,text)` | admin | Admin check and mandatory reason precede mutation |
+| `run_lms_pot_automation(uuid)` | admin | Refuses non-admin callers |
+| `scan_lms_automation()` | admin | Refuses non-admin callers |
+| `set_buy_back_decision(uuid,uuid,boolean)` | admin | Delegates approval to the admin-gated confirmation function and refuses revocation without reason |
+| `set_fixture_selection_block(bigint,boolean,text)` | admin | Admin check and reason validation precede mutation and audit write |
+| `set_player_approval(uuid,boolean)` | admin | Admin check precedes mutation |
+| `set_pot_lifecycle(uuid,text)` | admin | Admin check precedes the lifecycle transition |
+| `set_pot_player_payment(uuid,uuid,text)` | admin | Admin check precedes mutation |
+| `set_pot_status(uuid,text)` | admin | Admin check precedes mutation |
+| `set_pot_test_mode(uuid,boolean)` | admin | Admin check precedes mutation |
+| `set_test_pick_scenario(uuid,bigint,text)` | admin/test-only | Admin and test-mode checks precede mutation |
+| `sync_fpl_data(text,jsonb,jsonb)` | admin | Authenticated wrapper is admin-gated; service-role provider paths are separately revoked from `authenticated` |
+
+### Result
+
+**PASS, with two documented interface observations and no authorization blocker found.**
+
+- `get_lms_automation_status()` and `get_lms_operations_health()` return `null` to a
+  non-admin rather than raising an authorization error. They do not disclose protected data.
+- `get_my_pot_history(uuid)` admits an administrator through its pot-access gate but still
+  returns history for `auth.uid()`; this is a harmless functionality asymmetry, not an
+  escalation or cross-player disclosure.
+
+The outstanding function-by-function RPC-review item is therefore closed. This finding does
+not approve the migration sequence and does not change the separate legacy table-ACL or
+`rls_auto_enable()` decisions.
