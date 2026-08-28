@@ -472,6 +472,7 @@ overstated it.
 | Output format | proposed, **awaiting review** |
 | Recovery algorithm | proven in isolated containers across all six supported classes — seven properties, one atomic transaction. **Still not generated as an executable artifact, and not authorized to be** |
 | Recovery artifact | **not designed in executable form, not generated, not applied** |
+| Source capture | staging `evhiixndiuwwodsouyhf` captured manually by the operator 2026-08-28, 544 rows, verified by SHA-256; compared against the restored target and found sufficient for the validated algorithm. Raw CSVs are held outside the repository and are not committed |
 | Gate | `NOT READY` — unchanged by this note |
 
 ## Redesign experiments — 2026-08-28, isolated container only
@@ -955,6 +956,168 @@ defaults apply`, and **section I contains 0 rows**: none of them currently carri
 privilege. A direct catalogue cross-check agrees — 12 table row types and 1 view row type, 0 with
 an explicit `typacl`.
 
+## Staging vs restored-local comparison — 2026-08-28
+
+First comparison of a **real** source capture against the restored target. Source: the staging
+capture exported manually from project `evhiixndiuwwodsouyhf` by the operator (544 rows, 9 columns,
+mode `600`, SHA-256
+`7c3164fda5ed8e534a2a6e2cdd6b82386a1a9ab53f397c2b31fb917819ce829c`, all re-verified before
+analysis; all 544 rows parse to exactly nine fields). Target: a fresh read-only capture taken from the untouched restored LMS stack with
+the query at commit `12bf9ec`, run twice and byte-identical, 867 rows. Neither CSV is committed;
+both live in an owner-only directory outside the repository. Staging was not contacted by this
+analysis — the operator ran the query — and the local stack was read from only.
+
+### Structural counts
+
+| Section | Source | Target | Delta |
+|---|---:|---:|---:|
+| A. Schema privileges | 7 | 7 | 0 |
+| B. Relation privileges | 245 | 452 | **+207** |
+| C. Column privileges | 0 | 0 | 0 |
+| D. Routine privileges | 75 | 166 | **+91** |
+| E. Ownership | 71 | 71 | 0 |
+| F. Default privileges | 78 | 102 | **+24** |
+| G. Grantees observed | 10 | 10 | 0 |
+| H. Role security context | 48 | 48 | 0 |
+| I. Type privileges | 0 | 0 | 0 |
+| J. Schema scope | 10 | 11 | +1 |
+| **Total** | **544** | **867** | **+323** |
+
+Parity under both contracts: **effective-security** — 6 source-only, 329 target-only;
+**provenance** — 24 source-only, 347 target-only. The difference between the two contracts is
+18 rows that agree on every security-relevant field and differ only in `acl_source`.
+
+### Classified differences
+
+| Class | Count | Detail |
+|---|---:|---|
+| Source-only **required grants** | **0** | staging holds no privilege the target lacks, in any section |
+| Target-only **excess grants** | **322** | 207 relation, 91 routine, 24 default-privilege |
+| **Grantability** differences | **0** | no `is_grantable` mismatch anywhere |
+| **Grantor** differences | **0** | every shared edge agrees on its grantor |
+| **Ownership** differences | **0** | 71 objects, identical owners; only `pg_database_owner` and `postgres` own anything in `public` |
+| Approved **ACL-source provenance** differences | **13 edges + 5 ownership annotations** | all one direction: NULL in staging, explicit locally |
+| Role / schema-scope **blockers** | **0** | see below |
+
+The divergence is therefore **purely additive toward more privilege**, exactly as section 2W
+observed on the 148-vs-206 comparison, and the capture's own warning that this is an observation
+rather than a law still stands — it simply happens to hold again here.
+
+### The excess, characterised
+
+All 322 excess edges are grants to the three Supabase client roles, and none is grantable:
+
+| Grantee | Relation | Routine | Default | Total |
+|---|---:|---:|---:|---:|
+| `anon` | 73 | 41 | 8 | 122 |
+| `authenticated` | 73 | 9 | 8 | 90 |
+| `service_role` | 61 | 41 | 8 | 110 |
+
+Spread over 65 distinct objects. **Zero excess edges carry a grant option**, so no dependent
+privileges hang off any of them.
+
+The 24 default-privilege excess rows are confined to the three `postgres`-owned groups in schema
+`public`, which locally hold 4/12/32 edges for future routines/sequences/tables against staging's
+1/3/20. The three `supabase_admin`-owned groups are **identical on both sides** at 4/12/32. The
+local `postgres` rules have in effect been widened to match `supabase_admin`'s broader ones — which
+is precisely the drift that makes any newly created object inherit the wrong privileges, and the
+reason resetting default rules is not optional.
+
+### The provenance differences are the known NULL case, now on real objects
+
+Thirteen edge rows across five objects are `default-derived` in staging and `explicit` locally:
+three sequences (`football_fixtures_id_seq`, `football_teams_id_seq`, `player_picks_id_seq`) and
+two functions (`create_profile_for_new_user()`, `rls_auto_enable()`). The five matching section E
+rows differ the same way — `ownership (acl null: defaults apply)` in staging, plain `ownership`
+locally. Those same five objects also carry excess: 9 target-only edges on each sequence and 3 on
+each function.
+
+This is the NULL-provenance case already documented for row types, **now confirmed to occur on
+real relations and routines**. The consequence is unchanged and unavoidable: PostgreSQL does not
+restore a NULL ACL, so after a repair these five objects will hold an explicit ACL byte-equal to
+their built-in default. Effective privileges will match staging exactly; the 13 edge rows and 5
+annotations will still differ. **That residual is expected and must not be treated as a failed
+repair.**
+
+### Roles, objects and scope — nothing blocks recovery
+
+Source ACL and ownership rows reference exactly six roles — `anon`, `authenticated`,
+`pg_database_owner`, `postgres`, `service_role`, `supabase_admin` — and **all six exist locally**.
+All **71 objects** named by the source exist locally; none is missing.
+
+Fourteen further roles exist in staging but are referenced by no in-scope ACL edge or ownership
+row, so none is required for recovery. One of them, `cli_login_postgres`, is the temporary login
+role the Supabase CLI creates; its presence records how the capture was taken and is not a
+dependency.
+
+The two databases do not carry the same platform schema set: staging has `supabase_migrations`,
+the local stack has `_realtime` and `supabase_functions`. Every schema on both sides classifies as
+`IN SCOPE` (`public` only) or `PLATFORM-MANAGED`, and **neither side has any `UNCLASSIFIED`
+schema**, so the fail-closed preflight passes against this pair. The platform-schema difference is
+outside the recovery's scope by contract and needs no action.
+
+Section G's three differing counts (`anon` 41→155, `authenticated` 73→155, `service_role` 53→155)
+are a consequence of the excess, not an independent finding. Section H shows 45 roles on each side
+with **zero attribute differences** on the 43 shared roles; the two non-shared entries are
+`cli_login_postgres` in staging and `supabase_functions_admin` locally.
+
+### Recovery specification — deterministic workload, no SQL generated
+
+| Phase | Step | Workload | Acting as |
+|---|---|---|---|
+| RESET | 1 | 166 routine revokes | `postgres` |
+| RESET | 2 | 452 relation revokes | `postgres` |
+| RESET | 3 | — no column or type ACLs exist on either side | — |
+| RESET | 4 | 7 schema revokes, **last**, so USAGE survives every object operation | `pg_database_owner` |
+| RESET | 5 | 6 default-privilege groups driven to their built-in baseline | `postgres`, `supabase_admin` |
+| REPLAY | 6 | 7 schema grants, **first**, restoring USAGE before any object grant | `pg_database_owner` |
+| REPLAY | 7 | 245 relation grants | `postgres` |
+| REPLAY | 8 | 75 routine grants | `postgres` |
+| REPLAY | 9 | 6 default-privilege groups driven to the exact source ACL | `postgres`, `supabase_admin` |
+
+**625 revokes and 327 grants**, plus 12 default-privilege group operations, in one transaction.
+The recovery must be able to assume three grantor identities: `pg_database_owner`, `postgres` and
+`supabase_admin`.
+
+Dependency ordering reduces to the schema-last / schema-first rule alone. Because **no edge on
+either side is grantable and no edge has a grantor different from its owner**, the leaf-peeling
+pass, the `REVOKE GRANT OPTION FOR … CASCADE` cycle-break and the replay's grant-option
+precondition never engage. They remain in the algorithm as the general case; here they are inert.
+
+### Is the validated algorithm sufficient for this capture?
+
+**Yes. Every construct in this comparison is a strict subset of what was proven**, and the harder
+cases the algorithm exists for are simply absent: no grant options, no third-party grantors, no
+cycles, no column ACLs, no type ACLs, no missing roles, no missing objects, no unclassified schema,
+no ownership drift. Two default-privilege owners appear together, which the multi-owner synthetic
+fixture already covered.
+
+One case is new only in *where* it appears: the NULL-ACL provenance difference, previously proven
+on types, occurs here on three sequences and two functions. It needs no algorithm change — the
+capture already represents it and the replay already handles it — but it does mean a post-repair
+capture of this pair **will not be byte-identical to the source**, and the expected residual is
+exactly 13 edge rows plus 5 ownership annotations. Anyone verifying the repair should compare under
+the effective-security contract, not the provenance contract.
+
+### Algorithm selected
+
+**The full reset/replay algorithm is selected for this workload.** It is the form the seven proven
+properties apply to — exact effective-security parity, permitted-only provenance parity, exact
+grantor graph, exact default-rule parity, complete removal of target-only excess, atomic rollback
+after an injected mid-run failure, and repeated-run fixed-point convergence — and every construct
+in this real workload is already covered by that testing.
+
+**The differential revoke-only shortcut is explicitly NOT selected and remains unvalidated.**
+Because there are zero source-only grants, the divergence could in principle be cleared by revoking
+only the 322 excess edges rather than performing 625 revokes and 327 grants, and that form is both
+smaller and never leaves the schema without USAGE mid-transaction. Those advantages are real and
+they are still not sufficient: none of the seven properties has been demonstrated for it, it has no
+fixed-point or rollback evidence of its own, and its correctness depends on the "zero source-only
+grants" precondition continuing to hold at execution time — a precondition this comparison
+establishes for one moment on one pair of databases, not a property of the mechanism. It is
+recorded so the reasoning stays visible and so nobody re-derives it later as a fresh idea; adopting
+it would require its own full validation cycle first.
+
 ## Audit corrections — 2026-08-28
 
 An adversarial review (50 agents, 4 lenses) confirmed 18 findings after refutation. Classification
@@ -996,5 +1159,11 @@ gap in what is claimed: object classes outside the scope contract are unimplemen
 rather than pass, and row-level security is verified by separate artifacts rather than represented
 as an ACL here. The relation-backed row-type gap is closed.
 
-The next step is review of this note and of the amended capture. Generating repair SQL remains a
-separate decision that this note does not make.
+A real source capture now exists and has been compared against the restored target — see "Staging
+vs restored-local comparison". The divergence is 322 target-only excess grants with **zero**
+source-only grants, zero grantability, grantor and ownership differences, and no role or
+schema-scope blockers. Every construct in it is a strict subset of what the algorithm has been
+proven against.
+
+The next step is review of this note, of the amended capture, and of the recovery specification.
+Generating repair SQL remains a separate decision that this note does not make.
