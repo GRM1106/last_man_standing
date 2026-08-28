@@ -4,7 +4,21 @@ Target: staging `evhiixndiuwwodsouyhf` (`last-man-standing-staging`) only.
 
 **This is a prepared runbook, not authorization.** Nothing here has been executed. No remote
 connection was made while preparing it. Do not run any step until the exact runbook is
-separately approved. The BACKUP / RESTORE OPERATOR GATE remains `NOT READY`.
+separately approved.
+
+**Gate status (as of 2026-08-28):** the BACKUP / RESTORE OPERATOR GATE is **`NOT READY`**. It was
+briefly `READY` on 2026-08-27 and has been **withdrawn**.
+
+Reason: the 148-vs-206 row discrepancy is now resolved, and the cause is an **ACL divergence**.
+Schema and data restore correctly, but the restored copy carries broader privileges than the
+source — 26 vs 18 table grants and 84 vs 34 routine grants. The dump's privilege statements are
+source-relative and do not revoke what a different target baseline grants by default. A restore
+that does not reproduce the source's security posture is not a demonstrated restore, so that gate
+row is unchecked. Recorded in `PHASE_2K_DISCOVERY_EVIDENCE.md` section 2W.
+
+The cause is understood but **not fixed**; no repair has been designed or applied. Recovery-envelope
+items 1 and 7 also remain unnamed in the operator's acceptance. The next design task is an
+explicit, complete ACL recovery mechanism independent of target default privileges.
 
 Workflow: **staging logical dump → local disposable restore → verification → retention.**
 
@@ -727,3 +741,7 @@ and the operator-approved disposal time and target.
 No production contact. No migration application. No Edge Function deployment. No secret
 configuration. No cron creation. No push. Restore is only ever into the local disposable
 stack. The gate stays `NOT READY` until every row above is satisfied and signed off.
+
+*(Current state 2026-08-27: all six rows are now satisfied and the gate is `READY`,
+scope-limited — see the header note above and `PHASE_2K_DISCOVERY_EVIDENCE.md` section 2V. This
+rule is retained as the governing condition, not superseded.)*

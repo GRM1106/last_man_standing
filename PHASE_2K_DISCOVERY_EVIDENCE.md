@@ -20,21 +20,62 @@ explicitly `READY` **and** the exact plan is separately approved.
 
 | Gate | Status |
 |---|---|
-| BACKUP / RESTORE OPERATOR GATE | `NOT READY` |
+| BACKUP / RESTORE OPERATOR GATE | **`NOT READY`** — `READY` was withdrawn 2026-08-28, see 2W |
 
 Update only when every row below is satisfied. Any unchecked row keeps the gate `NOT READY`.
+
+> ## ⚠ `READY` WITHDRAWN — the restore does not reproduce staging's security posture
+>
+> The gate was moved to `READY` on 2026-08-27 and is **withdrawn** as of 2026-08-28. The
+> 148-vs-206 discrepancy has been **resolved and its cause is understood**: the entire 58-row
+> gap is in the ACL sections. Schema and data restored correctly; **privileges did not**.
+>
+> The restore-demonstrated row is therefore **unchecked** and the gate returns to `NOT READY`.
+> This is not a documentation defect — a restored copy that carries broader privileges than its
+> source is a materially different database. See section 2W.
+>
+> The cause is understood but **not fixed**. No repair has been designed or applied.
 
 - ☑ Exact target project named: `evhiixndiuwwodsouyhf` (`last-man-standing-staging`)
 - ☑ Backup mechanism identified: pinned Supabase CLI `2.116.0` logical dump
   (`roles.sql`, `schema.sql`, `data.sql`) plus the companion migration ledger
 - ☑ Backup actually taken: completed 2026-08-27T21:29:07Z; see section 2O
-- ☐ Restore **demonstrated** into a scratch database — an untested dump does not count
-- ☐ Recovery point / recovery time expectations stated
-- ☐ Residual risk explicitly accepted
+- ☐ Restore **demonstrated** into a scratch database — **UNCHECKED 2026-08-28.** Schema and data
+  restored correctly, but the restored copy does **not** reproduce staging's ACL state: 26 vs 18
+  table grants and 84 vs 34 routine grants. A restore that does not reproduce the source's
+  security posture is not a demonstrated restore. See section 2W.
+- ☑ Recovery point / recovery time expectations stated: RPO `2026-08-27T21:29:07Z`;
+  measured **restore+verify** window 962s — **not** the runbook's Steps 6–8 RTO, and not a
+  recovery capability; see section 2U for what that figure does and does not mean
+- ☑ Residual risk explicitly accepted: operator acceptance recorded 2026-08-27, scope-limited to
+  the currently empty staging project; see section 2V
 
 Restore demonstration notes (what was restored, where, and what verified it):
 
 ```
+WHAT:   The complete backup at lms-staging-backup.Fug9iB — roles.sql, schema.sql and the
+        intact data.sql (22 auth + 12 public + 7 storage COPY sections). Nothing split,
+        edited, narrowed or reassembled. Checksums re-verified immediately before the run.
+
+WHERE:  A freshly recreated disposable local Supabase stack, container
+        supabase_db_last_man_standing, image postgres:17.6.1.165, server_version 17.6,
+        matching staging. Confirmed clean first: 0 public base tables and role configuration
+        matching the verified fresh-stack baseline. NOT an in-place staging restore.
+
+HOW:    Each file separately with ON_ERROR_STOP=1 — roles.sql as supabase_admin,
+        schema.sql as postgres, data.sql as supabase_admin. All exit 0 at 2026-08-27T22:35:04Z.
+
+VERIFIED BY: The committed read-only discovery SQL, split into its three sections and run
+        separately against the restored database (section 1 and 3 with ON_ERROR_STOP=1,
+        section 2 without, by design). Every compared measure matched the recorded staging
+        evidence: P1/P2 sentinels present; Phase 1 and 2A-2J absent; 12 public base tables,
+        RLS on all 12; 12 permissive SELECT policies; 4 enabled triggers; 5 extensions;
+        pg_cron absent; all 8 core tables 0 rows. 41 public functions restored, all 12
+        tables still owned by postgres. Migration ledger absent locally — the expected
+        divergence, reconciled against the Step 5 companion artifact, not the restore.
+
+LIMITS: Zero-row dataset, so the fixture_result_overrides circular foreign key was never
+        exercised by data. Full detail in sections 2T and 2U.
 ```
 
 ### 2A. Backup artifact — recorded destination (Step 0 executed)
@@ -723,6 +764,10 @@ The backup mechanism and backup-taken gate rows are now satisfied. The overall g
 `NOT READY`: restore demonstration, completed RPO/RTO expectations, and explicit residual-risk
 acceptance remain open.
 
+*(Superseded: all three subsequently completed — restore demonstrated in 2T/2U, RPO/RTO stated
+in 2U, residual risk accepted in 2V. The gate is now `READY`, scope-limited. This paragraph
+records the state at the time Step 4/5 completed.)*
+
 ### 2P. Step 6 — local disposable restore stack started
 
 **Step 6 only.** No restore was performed: `roles.sql`, `schema.sql` and `data.sql` have **not**
@@ -895,6 +940,10 @@ which is precisely the gate row still outstanding.
 The **restore-demonstrated** gate row remains **unchecked**, and the gate remains `NOT READY`.
 An RTO figure is not produced, because the restore did not complete; the window opened at
 `RESTORE_START_UTC` in section 2P remains open and unmeasured.
+
+*(Superseded: the restore was later demonstrated successfully in 2T and verified in 2U, and the
+gate is now `READY`, scope-limited — see 2V. This paragraph records the state at the time this
+failed attempt was assessed. The 2P window referenced here was discarded, not reused.)*
 
 #### Resolution adopted — run `roles.sql` as `supabase_admin`
 
@@ -1196,6 +1245,456 @@ warning has still not been exercised and must not be treated as cleared.
 No dump has been edited, split or narrowed, no error waived, and the backup artifacts are
 unaltered.
 
+The retry was subsequently executed — see section 2T.
+
+### 2T. Step 7 — RESTORE SUCCEEDED, all three files applied
+
+The corrected Step 7 ran against a freshly recreated stack. **All three files applied cleanly.**
+Staging and production were not contacted.
+
+#### Preconditions (all passed before the window opened)
+
+| Check | Result |
+|---|---|
+| Branch / working tree | `feature/lms-phase-2k-staging-discovery`, clean |
+| Backup checksums | all three **MATCH** section 2O |
+| Diverged stack stopped | `stop --no-backup` — 12 tables discarded with it |
+| Stack recreated | committed Step 6 command, `mailpit` excluded, exit `0` |
+| Container | running, **healthy**, created 2026-08-27T22:34:11Z |
+| Public base tables | **0** |
+| Role configuration | **matches** the verified fresh-stack baseline |
+
+| Field | Value |
+|---|---|
+| `RESTORE_START_UTC` | `2026-08-27T22:35:03Z` |
+| `RESTORE_START_EPOCH` | `1787870104` |
+
+#### Per-file outcome — all successful
+
+| Order | File | Role | Start (UTC) | End (UTC) | Exit | Outcome |
+|---|---|---|---|---|---|---|
+| 1 | `roles.sql` | `supabase_admin` | 22:35:04Z | 22:35:04Z | `0` | **SUCCESS** |
+| 2 | `schema.sql` | `postgres` | 22:35:04Z | 22:35:04Z | `0` | **SUCCESS** |
+| 3 | `data.sql` (intact) | `supabase_admin` | 22:35:04Z | 22:35:04Z | `0` | **SUCCESS** |
+
+Each ran separately with `ON_ERROR_STOP=1`. No dump was split, edited, narrowed or reassembled;
+no trigger was disabled, no constraint dropped, and no warning waived. `data.sql` was applied
+**whole**, including all 22 `auth`, 12 `public` and 7 `storage` `COPY` sections.
+
+Both role-context corrections are now **demonstrated by execution**: `roles.sql` under
+`supabase_admin` (previously failing on `GRANT SET ON PARAMETER`) and `data.sql` under
+`supabase_admin` (previously failing on `storage.buckets_vectors`).
+
+#### The circular foreign-key warning caused no restore error
+
+The `fixture_result_overrides` circular foreign-key constraint reported at dump time
+(section 2O) **did not produce any error during restore**. `data.sql` completed with exit `0`.
+
+| Observation | Value |
+|---|---|
+| `public.fixture_result_overrides` present | yes |
+| Foreign-key constraints on it | 3 |
+| Rows | 0 |
+
+The warning is therefore **resolved as a restore concern**: it was a `pg_dump` advisory about
+ordering, and the restore encountered no resulting failure. Note this was exercised against a
+table with **zero rows** — the constraint ordering was never stressed by actual data. It should
+not be assumed harmless for a future restore of a populated database.
+
+#### Restored objects
+
+| Measure | Value |
+|---|---|
+| `public` base tables | **12** — matches the count recorded for staging in section 3 |
+| `public` functions | **41** |
+| `public` tables owned by `postgres` | **12 of 12** |
+
+Ownership is intact: every public table is owned by `postgres`, established by `schema.sql`.
+Running `data.sql` as `supabase_admin` did **not** reassign ownership, exactly as recorded — the
+artifact contains no `SET SESSION AUTHORIZATION`, `SET ROLE`, or `OWNER TO` statements.
+
+All 12 tables restored with 0 rows, consistent with staging holding no application data.
+
+#### RTO window remains open
+
+**No RTO is calculated.** By the runbook the window closes only after Step 8 verification, which
+has not been run. `RESTORE_START_EPOCH=1787870104` stays open for that calculation.
+
+Backup artifacts are unaltered, all four directories are intact, and the gate remains
+`NOT READY` — the restore-demonstrated row is not checked until Step 8 verifies that what was
+restored actually reproduces staging. Step 8 was subsequently executed — see section 2U.
+
+### 2U. Step 8 — VERIFICATION PASSED, restore demonstrated
+
+The restored local stack was compared against the recorded staging evidence. Staging and
+production were not contacted; all queries were read-only.
+
+> ## ⚠ CORRECTION — an unexplained mismatch exists
+>
+> An earlier revision of this section stated *"Every compared measure matches"* and *"No
+> unexplained mismatch was found"*. **The second claim was wrong** and is retracted.
+>
+> Section 1 of the same, byte-identical discovery query returned **148 rows against staging**
+> (recorded in section 3) and **206 rows against the restored copy** — a **58-row difference**.
+> That is an unexplained mismatch, and the stated rule is that an unexplained mismatch is a
+> failure, not something to reconcile by preference.
+>
+> It **cannot be resolved from the evidence**: staging's section 3 entry records a prose
+> *summary*, not the 148 rows, so there are no per-section staging counts to compare against the
+> restored breakdown (21 sentinels, 12 tables, 41 functions, 12 policies, 4 triggers, 26 table
+> grants, 84 routine grants, 5 extensions, 1 cron = 206).
+>
+> The most likely locus is the dimension Step 8 explicitly did **not** compare numerically:
+> **110 of the 206 restored rows are grant rows** (26 table + 84 routine), and grant/ACL drift is
+> the central security concern of this whole discovery. Two candidate explanations — neither
+> established — are that the local stack carries platform grants staging does not, and that
+> `rls_auto_enable()`, recorded as staging drift with no repository source, may not exist on the
+> restored copy at all.
+>
+> **What was actually verified is the nine measures in the table below**, all of which match.
+> That is narrower than "the restore reproduces staging", and the gate row is worded accordingly.
+>
+> *(Superseded 2026-08-28: the re-run was performed and the discrepancy is **resolved** — the
+> cause is understood and recorded in section 2W. It is a real ACL divergence, not a recording
+> artefact. Statements above describing it as "unexplained", "unresolved", or "not yet done" are
+> superseded; the cause is known but **not fixed**. The gate has been withdrawn to `NOT READY`.)*
+
+#### Preconditions
+
+| Check | Result |
+|---|---|
+| Container | running, **healthy** |
+| Working tree | only the uncommitted evidence change |
+| Backup checksums | all three **MATCH** section 2O |
+| RTO window | existing window reused, **not** restarted — `RESTORE_START_UTC=2026-08-27T22:35:03Z`, epoch `1787870104` |
+
+#### Section execution
+
+The committed discovery SQL was split by the runbook's `awk`, producing exactly **three** files,
+each containing one `begin;` / `commit;` pair and one `set transaction read only`.
+
+| Section | Handling | Exit | Result |
+|---|---|---|---|
+| 1 — phase presence + inventory | `ON_ERROR_STOP=1` | `0` | 206 rows returned |
+| 2 — migration ledger | deliberately **without** `ON_ERROR_STOP` | `0` | `ERROR: relation "supabase_migrations.schema_migrations" does not exist` → `ROLLBACK` |
+| 3 — exact row counts | `ON_ERROR_STOP=1` | `0` | 8 rows, all `0` |
+
+Section 2's error is the **expected divergence** recorded in recovery-envelope item 4: the
+staging application migration ledger is excluded from both dumps and is therefore not restored.
+It is reconciled against the Step 5 companion artifact, not against the restore. Running it
+without `ON_ERROR_STOP` is what allowed section 3 to proceed.
+
+#### Comparison against recorded staging evidence
+
+| Measure | Staging (recorded) | Restored (observed) | Verdict |
+|---|---|---|---|
+| P1/P2 baseline sentinels | 3 present | 3 present | **MATCH** |
+| Phase 1 and 2A–2J sentinels | ABSENT | ABSENT | **MATCH** |
+| `public` base tables | 12 | 12 | **MATCH** |
+| RLS enabled | all 12 | all 12 | **MATCH** |
+| SELECT policies, all permissive | 12 | 12 | **MATCH** |
+| Non-internal triggers, all enabled | 4 | 4 | **MATCH** |
+| Extensions | 5 | 5 | **MATCH** |
+| `pg_cron` | not installed | not installed | **MATCH** |
+| Exact row counts (8 core tables) | all 0 | all 0 | **MATCH** |
+| Migration ledger | 24 rows on staging | absent locally | **expected divergence** |
+
+Extensions match by name and set: `pg_stat_statements`, `pgcrypto`, `plpgsql`,
+`supabase_vault`, `uuid-ossp`. Table grants (26) and routine grants (84) were returned and are
+available for the outstanding ACL review; the staging evidence recorded those as scope lists
+rather than counts, so they are reported rather than compared numerically.
+
+`public` functions restored: **41**. The staging inventory in section 3 did not record a
+function count, so this is reported, not compared.
+
+**Dimensions NOT compared**, and therefore not verified: table grants, routine grants, the
+function inventory, policy `USING`/`WITH CHECK` expression text, and constraint definitions.
+Staging's recorded evidence gives scope lists and prose for these rather than comparable values.
+The 58-row discrepancy above almost certainly lives in this set.
+
+No mismatch was reconciled by preferring one source over another. The one mismatch found is
+recorded as open and unexplained rather than explained away.
+
+#### The comparison baseline predates the dump
+
+The staging figures compared here were recorded on **2026-08-26** (section 1 metadata, commit
+`e69179c`), roughly **32 hours before** the dump completed at `2026-08-27T21:29:07Z`. Staging was
+not contacted during Steps 6–8, so the restore is verified against a **pre-dump snapshot of the
+source**, not against the source as it stood at the RPO instant.
+
+Nothing re-establishes that staging was unchanged across that interval. In practice the risk is
+low — every recorded staging interaction was read-only apart from two database-password resets,
+and staging is empty — but that is reasoning, not evidence, and it is stated here rather than
+left implicit.
+
+#### Recovery objectives
+
+| Objective | Value |
+|---|---|
+| **RPO** | `2026-08-27T21:29:07Z` — the dump completion timestamp from section 2O |
+| `RESTORE_START_UTC` | `2026-08-27T22:35:03Z` (epoch `1787870104`) |
+| `RESTORE_END_UTC` | `2026-08-27T22:51:06Z` (epoch `1787871066`) |
+| **Measured window** | **962s** |
+
+**It is not the runbook's RTO as defined.** The runbook defines RTO as *"local-stack startup plus
+restore plus verification"* (Steps 6–8 together). This window **excludes stack startup** — the
+stack was recreated at 22:34:11Z, before the window opened at 22:35:03Z. The runbook is itself
+inconsistent here: it also requires `RESTORE_START` to be recorded only *after* the stack is
+confirmed healthy and clean, which is the rule actually followed. The figure is therefore a
+**restore+verify window**, not the Steps 6–8 RTO, and the two definitions cannot both be met.
+The omission makes the number smaller, not larger. Where section 2V calls it "the measured
+962-second RTO", read it as this restore+verify window.
+
+**What 962s does and does not mean.** It is honest wall-clock for the window measured, but it is
+dominated by operator/agent deliberation between commands, not by database work. The observed machine-time components were far smaller: stack recreation completed at
+22:34:11Z (**before** this window opened, so it is not included), and all three restore files
+applied within roughly **one second** at 22:35:04Z. The verification queries likewise returned in
+under a second each.
+
+962s is therefore an **upper bound on a supervised, step-by-step restore**, not a measure of how
+long recovery takes. It should not be quoted as a recovery-time capability. A realistic
+unattended figure would be a small number of minutes dominated by stack startup, and would need
+separate measurement. It is also unrepresentative for a second reason: staging holds no data, so
+neither restore nor verification was stressed by volume.
+
+#### Circular foreign-key case — succeeded, but does not generalise
+
+`data.sql` applied without error and `public.fixture_result_overrides` restored with its 3
+foreign-key constraints intact. **This does not prove constraint ordering is safe for a
+populated database.** The table held **zero rows**, so the circular reference was never
+exercised by actual data. The dump-time warning is cleared for this artifact only; a restore of
+a populated database must treat it as untested.
+
+#### Gate movement
+
+| Row | State |
+|---|---|
+| Exact target project named | ☑ |
+| Backup mechanism identified | ☑ |
+| Backup actually taken | ☑ |
+| **Restore demonstrated** | ☑ **now satisfied** |
+| **RPO / RTO expectations stated** | ☑ **now satisfied**, with the caveats above |
+| Residual risk explicitly accepted | ☐ **remains open — operator decision** |
+
+**Five of six rows are satisfied. The gate remains `NOT READY`** until residual risk is
+explicitly accepted, which is not a step that can be executed — it is a judgement recorded by the
+operator. No migration, deployment, secret or cron work has been performed or is authorized.
+
+*(Superseded: residual risk was subsequently accepted — see section 2V. The gate is now `READY`,
+scope-limited. This paragraph records the state at the time Step 8 completed.)*
+
+### 2V. Residual risk accepted — gate `READY`, scope-limited
+
+Recorded 2026-08-27. The operator explicitly accepted the residual risk for Phase 2K staging
+recovery. This satisfies the sixth and final gate row.
+
+**Provenance — operator attestation, not verifiable from the record.** Unlike the other five gate
+rows, this one rests entirely on the operator's statement. It has no artifact behind it: no
+dashboard URL as in 2B, no command and exit status as in 2C, no execution channel as in 2F. The
+six risks below are recorded as the operator stated them, and they were then mapped by the agent
+back to sections of this document — so the *wording* is the operator's and the *cross-references*
+are derived. This is the maximum provenance a judgement-type row admits, but a reviewer relying
+on `READY` should confirm the acceptance directly with the operator rather than from this file
+alone.
+
+#### Risks accepted, as stated by the operator
+
+1. The demonstrated restore used an **empty staging dataset** and does not prove restoration of
+   populated or circularly related data.
+2. The restore was demonstrated into a **disposable local Supabase stack**, not as an in-place
+   staging recovery.
+3. Platform-wide roles and data required a **local superuser restore context**.
+4. The backup is **plaintext at rest** and depends on local disk encryption, account security
+   and owner-only permissions.
+5. The measured **962-second RTO is a supervised upper bound dominated by manual delay**, not a
+   production recovery capability.
+6. The staging **migration ledger is retained as companion reconstruction evidence** and is not
+   restored by the dump.
+
+Each corresponds to a limitation established during execution rather than assumed: item 1 to the
+zero-row circular-FK case in 2U; item 2 to recovery-envelope item 5; item 3 to the role-context
+corrections in 2Q and 2S; item 4 to envelope item 8; item 5 to the RTO caveat in 2U; item 6 to
+envelope item 4 and the Step 5 companion artifact.
+
+#### Coverage against the recovery envelope — GAP, operator attention required
+
+The runbook's evidence criterion for this gate row (`PHASE_2K_BACKUP_RESTORE_RUNBOOK.md`,
+"Evidence to record") is *"operator sign-off naming every recovery-envelope item above"*. The
+envelope has **eight** items; the operator named **six** risks. Mapping them honestly:
+
+| Envelope item | Covered by |
+|---|---|
+| 1. Logical backup, not PITR | **not named** |
+| 2. `auth`/`storage` excluded from schema dump; target must be a Supabase stack | **partial** — risk 2 covers "not in-place", not the schema-exclusion consequence |
+| 3. `auth` row data included | **not named** |
+| 4. Migration ledger excluded | risk 6 |
+| 5. Restore demonstrated locally, not in-place | risk 2 |
+| 6. Staging holds zero rows | risk 1 |
+| 7. Role dumps use `--no-role-passwords` | **not named** |
+| 8. Plaintext at rest | risk 4 |
+
+The operator additionally accepted two risks that are **not** envelope items — the local
+superuser restore context, and the 962s figure being a supervised upper bound. Nothing the
+operator stated was omitted or softened; the gap runs the other way.
+
+**Assessment of the unnamed items.** Two are materially unaddressed and are flagged for the
+operator rather than assumed accepted:
+
+- **Item 1 (logical backup, not PITR)** — anything written to staging after
+  `2026-08-27T21:29:07Z` is unrecoverable from this artifact. Material.
+- **Item 7 (`--no-role-passwords`)** — roles are recovered but their passwords are not, so
+  anything depending on a role password must be re-established after a restore. Material.
+
+The remaining two are lower consequence: item 3 records that `auth` data *is* captured, which is
+a positive finding rather than a risk, and item 2's practical consequence — the restore target
+must be a Supabase stack — was demonstrated rather than merely accepted.
+
+**This gap does not retract the acceptance.** The gate row asks that residual risk be explicitly
+accepted, and it was. But the runbook's stricter criterion is **not fully met as written**, and
+that is recorded here rather than quietly ticked. Before staging work proceeds, the operator
+should either extend the acceptance to items 1 and 7 explicitly, or record why they are
+considered subsumed.
+
+#### Scope of the acceptance — explicit limits
+
+| Applies to | Does **not** apply to |
+|---|---|
+| Staging `evhiixndiuwwodsouyhf` | Production `enzdvsppduyqtpdeseyh` |
+| That project **while it is empty** | That project once it holds material user data |
+
+The acceptance **must be reassessed before staging contains material user data**. Three of the
+six accepted risks — the empty dataset, the unexercised circular foreign key, and the
+unrepresentative RTO — are conditional on staging being empty, and stop being acceptable once it
+is not. Populating staging invalidates this acceptance and requires a fresh backup/restore
+demonstration against data.
+
+#### Gate state
+
+| Row | State |
+|---|---|
+| Exact target project named | ☑ |
+| Backup mechanism identified | ☑ |
+| Backup actually taken | ☑ |
+| Restore demonstrated | ☑ |
+| RPO / RTO expectations stated | ☑ |
+| Residual risk explicitly accepted | ☑ |
+
+**BACKUP / RESTORE OPERATOR GATE: `READY`** — for staging `evhiixndiuwwodsouyhf` only, while
+empty.
+
+> **Superseded 2026-08-28:** the gate declared `READY` above has been **withdrawn**. The
+> restore-demonstrated row is unchecked because the restore does not reproduce staging's ACL
+> state — see section 2W. The operator's residual-risk acceptance recorded in this section
+> stands on its own terms and is not retracted; it simply no longer completes the gate, because
+> a different row is now unsatisfied. The envelope items 1 and 7 gaps recorded above also remain
+> open.
+
+#### What `READY` does and does not authorize
+
+Clearing this gate removes the **backup/restore precondition** that has blocked Phase 2K
+staging work. It is **not** blanket authorization.
+
+Still required before any staging change:
+
+- The exact migration sequence must be **separately reviewed and approved**. The draft in
+  section 6 remains a draft.
+- Outstanding items from discovery are unresolved and were never part of this gate: the
+  function-by-function review of the `authenticated` SECURITY DEFINER RPC surface, the
+  10-relation legacy ACL revocation decision, and the treatment of `rls_auto_enable()`.
+- Edge Function deployment, secret configuration and cron creation each remain separately gated,
+  as does enabling any automation flag.
+
+Production remains entirely out of scope and untouched.
+
+### 2W. Discrepancy RESOLVED — ACL divergence; `READY` withdrawn
+
+Recorded 2026-08-28. The 148-vs-206 discrepancy opened in section 2U is **resolved**: its cause
+is understood. It is **not fixed**, and no repair has been designed or applied.
+
+#### Provenance of the staging re-run
+
+| Field | Value |
+|---|---|
+| Query | Query 1 from `supabase/discovery/phase_2k_staging_discovery.sql`, **unchanged** since commit `e69179c` |
+| Target | confirmed staging `evhiixndiuwwodsouyhf` |
+| Scope | Query 1 only — Query 2 and Query 3 were not run |
+| Mutation | none; the block is a single read-only transaction |
+| Result artifact | complete output exported as CSV, held **outside the repository** with owner-only permissions |
+| Repository | the raw CSV is **not committed**; only the derived counts below are recorded here |
+
+#### Where the 58 rows are
+
+Non-ACL sections match **exactly**:
+
+| Section | Staging | Restored | Verdict |
+|---|---:|---:|---|
+| Phase presence | 21 | 21 | match |
+| Tables + RLS | 12 | 12 | match |
+| Functions | 41 | 41 | match |
+| Policies | 12 | 12 | match |
+| Triggers | 4 | 4 | match |
+| Extensions | 5 | 5 | match |
+| Cron | 1 | 1 | match |
+| **non-ACL subtotal** | **96** | **96** | **match** |
+
+The ACL sections do not:
+
+| Section | Staging | Restored | Difference |
+|---|---:|---:|---:|
+| Table grants | 18 | 26 | **+8** |
+| Routine grants | 34 | 84 | **+50** |
+| **ACL subtotal** | **52** | **110** | **+58** |
+| **TOTAL** | **148** | **206** | **+58** |
+
+The entire gap is ACL. Both totals reconcile exactly against the fixed 96 non-ACL rows.
+
+#### Cause
+
+**Not an omission.** The schema dump does contain privilege statements — `schema.sql` carries
+**67 `GRANT`** and **39 `REVOKE`** statements, including `REVOKE ALL ON FUNCTION` and
+`GRANT … ON TABLE` forms. ACLs were dumped.
+
+The failure is that those statements are **source-relative**. `pg_dump` emits the privileges
+needed to reproduce the source's ACLs *starting from the defaults its own restore target is
+assumed to have*. The fresh local Supabase stack applies **broader default privileges** when the
+restored objects are created, and the dump's statements do not revoke privileges that the target
+granted by default but the source never had. The result is additive: everything staging granted
+is present, plus what the local baseline added and nothing removed.
+
+That is why the divergence is **entirely in the direction of more privilege**, and why it is
+concentrated in routine grants (+50), where default `EXECUTE` to `PUBLIC` applies to every
+restored function.
+
+#### Consequence — the restore is not demonstrated
+
+Schema and data restoration **succeeded**. Object structure, function inventory, RLS posture,
+policies, triggers, extensions and row counts all reproduce staging exactly.
+
+**The security posture does not.** A restored copy holding 26 table grants where the source has
+18, and 84 routine grants where the source has 34, is not a faithful reproduction — it is a more
+permissive database. Recovering into such a copy would silently widen the attack surface, which
+is precisely the class of defect this phase's ACL discovery exists to prevent.
+
+The **restore-demonstrated gate row is unchecked** and the **gate returns to `NOT READY`**.
+
+#### Still open, unchanged by this finding
+
+- **Recovery-envelope item 1** (logical backup, not PITR) — not named in the acceptance.
+- **Recovery-envelope item 7** (`--no-role-passwords`; role passwords not captured or restored)
+  — not named in the acceptance.
+
+Both remain open regardless of the ACL work.
+
+#### Next design task — not started
+
+An **explicit, complete ACL recovery mechanism that is independent of the target's default
+privileges**. It must produce the source's exact privilege state on any target baseline rather
+than assuming one, which means establishing a known ACL starting point rather than inheriting
+whatever the target creates.
+
+No repair SQL has been written or applied, no dump has been edited, and the restored stack has
+not been mutated. Designing that mechanism is the next task and has **not** been started.
+
 ## 3. Query 1 — phase presence + object inventory
 
 Paste result:
@@ -1460,3 +1959,8 @@ history agrees with sentinels.
 The migration plan may be prepared and reviewed while the gate is `NOT READY`. No migration,
 function deployment, secret configuration, or cron change may begin until the gate is
 explicitly `READY` and the exact plan is separately approved.
+
+**Current state (2026-08-27):** the backup/restore gate is now `READY`, scope-limited to the
+empty staging project (section 2V). The first condition above is therefore met. **The second is
+not** — the exact plan has not been approved, so no migration, function deployment, secret
+configuration or cron change is yet authorized.
