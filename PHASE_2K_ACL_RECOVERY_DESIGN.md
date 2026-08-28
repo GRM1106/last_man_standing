@@ -1,8 +1,10 @@
 # Phase 2K — ACL Recovery Mechanism: Design Note
 
-**Design only. No executable repair SQL exists, and none is authorized by this note.**
+**An executable artifact HAS been generated and is under review. It has NEVER been applied
+anywhere. See "Generated recovery implementation" and "Independent adversarial audit" below.
+This note does not authorize its execution.**
 
-> ## ⛔ NOT AUTHORIZED TO BUILD — proven in isolated containers only
+> ## ⛔ NOT AUTHORIZED TO APPLY — artifact generated and audited, never executed
 >
 > **Read the third-round update at the end of this banner first: it supersedes the status below.**
 > The three original mechanisms were disproven and have since been replaced by mechanisms proven
@@ -84,7 +86,8 @@
 >
 > **What the blocker still covers.** Not a broken mechanism, and not the capture:
 >
-> 1. **No executable artifact is authorized.** None exists, and this note does not approve one.
+> 1. **Execution is not authorized.** The artifact exists (generated 2026-08-28, audited, never
+>    applied); this note does not approve running it.
 > 2. **The algorithm has never run against a Supabase-hosted database.** Every result here comes
 >    from disposable local containers built from the LMS stack's own image. Staging and production
 >    were not contacted; the restored LMS stack was read from and never modified.
@@ -167,15 +170,16 @@ Two different enumerations are involved, and conflating them is the trap:
 | *Which grantees must be revoked from each object?* | the **target's own current ACL**, read at repair time |
 
 **The revoke list must come from the target, not the source.** For each object, the repair
-inspects that object's current ACL on the target and revokes every non-owner grantee it finds —
-including grantees that appear nowhere in the source capture.
+inspects that object's current ACL on the target and revokes **every** edge it finds — including
+the owner's own aclitems, and including grantees that appear nowhere in the source capture.
 
-> **Open defect (audit finding 10):** exempting the owner makes the target's floor the owner's
-> full default rights, so a source object with an empty ACL — a real, deliberate state produced
-> by revoking the owner's own privileges — can never be reproduced. That silently bakes in the
-> one-directional assumption this note elsewhere warns against. The capture already distinguishes
-> `acl empty: no privileges` from `acl null: defaults apply` in section E; the reset must honour
-> that distinction rather than assume the owner always retains everything.
+> **Finding 10 is CLOSED, and the paragraph above was corrected with it.** An earlier draft
+> exempted the owner, which made the target's floor the owner's full default rights and left a
+> deliberately empty ACL unreproducible. The implementation exempts nobody: on the LMS workload the
+> reset issues 625 revokes, i.e. every edge, 156 of them the owner's own. Section E's distinction
+> between `acl empty: no privileges` and `acl null: defaults apply` is honoured — an `empty` source
+> ACL is reproduced exactly when the target holds one, though it cannot be reached from a NULL
+> target (see "Remaining gaps").
 
 **Source-only grantee enumeration is insufficient**, and this is the crux of the whole design. A
 grantee the target holds but the source does not will never appear in the source capture, so a
@@ -387,6 +391,12 @@ removed by the expected role.
 
 ## Capture validation — local stack only, 2026-08-28
 
+> **SUPERSEDED — historical snapshot.** The figures in this section (837 rows; E 58; F 96; no
+> sections I or J; 99,975 bytes) describe the capture query as it stood *before* row types,
+> type privileges and the schema-scope section were added. They are internally consistent for that
+> version and are kept as a record. Current measurements are 867 rows, E 71, F 102, sections A–J —
+> see "Relation-backed row types" and "Staging vs restored-local comparison".
+
 The capture was executed **against the restored local PostgreSQL 17.6 stack only**
 (`supabase_db_last_man_standing`). Staging and production were not contacted. Only structural
 counts and outcomes are recorded here; the raw CSV is held outside the repository at `700`/`600`
@@ -470,8 +480,8 @@ overstated it.
 |---|---|
 | Capture query | sections A–J, including relation-backed row types. Executed and byte-deterministic on the local stack, a synthetic container, an integrated synthetic database and the restored LMS stack. Sections C, E and I field-asserted; A, B, D, F–H, J structurally validated, J additionally proven to fail closed |
 | Output format | proposed, **awaiting review** |
-| Recovery algorithm | proven in isolated containers across all six supported classes — seven properties, one atomic transaction. **Still not generated as an executable artifact, and not authorized to be** |
-| Recovery artifact | **not designed in executable form, not generated, not applied** |
+| Recovery algorithm | proven in isolated containers across all six supported classes — seven properties, one atomic transaction, plus an independent four-lens adversarial audit. **Generated as an executable artifact; not authorized to be applied** |
+| Recovery artifact | **SUPERSEDED pending regeneration; never applied anywhere.** `supabase/recovery/phase_2k_acl_recovery_staging_7c3164fd.sql`, generated from the staging capture and validated end-to-end in an isolated container. Never run against the restored LMS stack, staging or production |
 | Source capture | staging `evhiixndiuwwodsouyhf` captured manually by the operator 2026-08-28, 544 rows, verified by SHA-256; compared against the restored target and found sufficient for the validated algorithm. Raw CSVs are held outside the repository and are not committed |
 | Gate | `NOT READY` — unchanged by this note |
 
@@ -828,7 +838,7 @@ guard every explode with a cardinality check.
 On the LMS stack all 11 non-system schemas classified — 1 `IN SCOPE`, 10 `PLATFORM-MANAGED`, none
 `UNCLASSIFIED` — so the scope contract would permit a run there. Sections C and I returned empty,
 and that emptiness was confirmed against the catalogues directly rather than assumed: `public`
-holds **0** columns with a non-NULL `attacl` and **0** grantable-class types. The two new sections
+holds **0** columns with a non-NULL `attacl`, and **13** grantable-class types of which **0** carry an explicit `typacl`. The two new sections
 are therefore untested against real LMS data by absence of subject matter, not by omission.
 
 ## Relation-backed row types — 2026-08-28, isolated container only
@@ -1013,7 +1023,7 @@ All 322 excess edges are grants to the three Supabase client roles, and none is 
 | `authenticated` | 73 | 9 | 8 | 90 |
 | `service_role` | 61 | 41 | 8 | 110 |
 
-Spread over 65 distinct objects. **Zero excess edges carry a grant option**, so no dependent
+Spread over **57 distinct objects** — every relation, sequence and routine in `public` (16 + 41). **Zero excess edges carry a grant option**, so no dependent
 privileges hang off any of them.
 
 The 24 default-privilege excess rows are confined to the three `postgres`-owned groups in schema
@@ -1057,9 +1067,14 @@ schema**, so the fail-closed preflight passes against this pair. The platform-sc
 outside the recovery's scope by contract and needs no action.
 
 Section G's three differing counts (`anon` 41→155, `authenticated` 73→155, `service_role` 53→155)
-are a consequence of the excess, not an independent finding. Section H shows 45 roles on each side
-with **zero attribute differences** on the 43 shared roles; the two non-shared entries are
-`cli_login_postgres` in staging and `supabase_functions_admin` locally.
+are a consequence of the excess, not an independent finding. Section H holds 48 rows on each side —
+**23 role-attribute rows naming 20 distinct roles, plus 25 membership rows**. There are therefore
+**20 roles per side, 19 of them shared, with zero attribute differences** across the 19; the two
+non-shared roles are `cli_login_postgres` in staging and `supabase_functions_admin` locally. (An
+earlier revision of this paragraph said "45 roles … 43 shared". That was wrong: it counted the 25
+membership identity strings such as `cli_login_postgres -> postgres` as if they were roles, and
+overstated the breadth of the check by 2.3x. The conclusion — zero attribute differences — is
+unaffected and was re-confirmed.)
 
 ### Recovery specification — deterministic workload, no SQL generated
 
@@ -1075,14 +1090,24 @@ with **zero attribute differences** on the 43 shared roles; the two non-shared e
 | REPLAY | 8 | 75 routine grants | `postgres` |
 | REPLAY | 9 | 6 default-privilege groups driven to the exact source ACL | `postgres`, `supabase_admin` |
 
-**625 revokes and 327 grants**, plus 12 default-privilege group operations, in one transaction.
+**625 revokes and 327 grants**, in one transaction. The default-privilege phase touches 12 groups
+but issues one `ALTER DEFAULT PRIVILEGES` **per edge**, not per group: the reset drives 6 target
+groups holding 96 edges to their baseline and the replay drives 6 source groups to 72 edges, so it
+is roughly **168 statements**, not 12.
 The recovery must be able to assume three grantor identities: `pg_database_owner`, `postgres` and
 `supabase_admin`.
 
-Dependency ordering reduces to the schema-last / schema-first rule alone. Because **no edge on
-either side is grantable and no edge has a grantor different from its owner**, the leaf-peeling
-pass, the `REVOKE GRANT OPTION FOR … CASCADE` cycle-break and the replay's grant-option
-precondition never engage. They remain in the algorithm as the general case; here they are inert.
+Because **no edge on either side is grantable and no edge has a grantor different from its owner**
+— both measured — the `REVOKE GRANT OPTION FOR … CASCADE` cycle-break and the replay's
+grant-option precondition never engage on this workload.
+
+**Leaf-peeling does engage, and an earlier revision of this paragraph wrongly said it does not.**
+The peel predicate defers any edge whose grantee is the grantor of another edge in the same object
+family, and `postgres` / `pg_database_owner` are both grantor and grantee of their own aclitems:
+**156 of the 625 target edges** meet that condition (2 schema, 113 relation, 41 routine). The reset
+therefore takes three passes, not two — the owner's own edges are revoked only after every edge
+they granted. A reviewer told the pass loop is inert would not scrutinise it, so the claim is
+corrected here rather than softened.
 
 ### Is the validated algorithm sufficient for this capture?
 
@@ -1117,6 +1142,457 @@ grants" precondition continuing to hold at execution time — a precondition thi
 establishes for one moment on one pair of databases, not a property of the mechanism. It is
 recorded so the reasoning stays visible and so nobody re-derives it later as a fresh idea; adopting
 it would require its own full validation cycle first.
+
+## Generated recovery implementation — 2026-08-28
+
+The executable artifact has been **generated but not applied**. It has never been run against the
+restored LMS stack, and never against staging or production. Everything below was proven in a
+disposable PostgreSQL 17.6 container built from the LMS stack's own image, which was removed
+afterwards.
+
+This section brings the design contract into agreement with what was actually built. Where the
+implementation deviates from what earlier sections describe, the deviation is stated here rather
+than left to be discovered by reading code.
+
+### Architecture: generator, template, artifact, manifest
+
+| Component | Purpose |
+|---|---|
+| `scripts/generate_phase_2k_acl_recovery.py` | reads a capture CSV, validates it, decomposes identifiers, emits the artifact and manifest. Connects to nothing and executes nothing |
+| `scripts/phase_2k_acl_recovery_template.sql` | the **fixed algorithm**. Does not vary with the input |
+| `supabase/recovery/phase_2k_acl_recovery_<sha-prefix>.sql` | the generated artifact: template + staged source snapshot |
+| `supabase/recovery/…​.manifest.txt` | the review anchor: four full SHA-256 hashes, structural counts, expected workload, permitted provenance residual |
+
+**Why the template is separated from the data.** The artifact is 1,313 lines, most of it staged
+rows. If the algorithm were regenerated alongside the data, every review would have to re-read the
+algorithm to confirm it had not silently changed, and a diff between two artifacts would mix
+algorithm drift with data drift. Splitting them makes the algorithm a fixed, separately hashed
+object: `generator_template_sha256` in the manifest pins it, a diff of two artifacts generated from
+different captures shows **only** staged rows, and reviewing the algorithm once is enough until
+that hash changes.
+
+Determinism follows from the same split. Every emitted row set is sorted by an explicit total key,
+and no timestamp, hostname, path or environment value is written into the artifact. Regenerating
+from the same capture reproduces `artifact_sha256` exactly — confirmed by generating twice and
+comparing bytes.
+
+### Identifier decomposition and refusal rules
+
+The capture emits identities as unquoted concatenations: `public.foo`, `public.foo.col`,
+`public.foo(a integer, b text)`. Splitting those inside SQL at run time would mis-handle an
+identifier containing a dot. The generator therefore decomposes every identity in Python into
+`(schema, name, args, column)` and stages them as separate columns, so **the artifact never parses
+a dotted identity**. An identity that does not decompose unambiguously — the wrong number of
+dot-separated parts, or a routine with no argument list — is refused rather than guessed.
+
+A relation and its row type share an identity and differ only in `object_kind`, so the ownership
+index is keyed on `(class, identity)`, never on identity alone. A column privilege has no ownership
+row of its own; its parent is resolved to the owning relation or sequence, and a column whose parent
+has no `E. OWNERSHIP` row is refused as an incomplete capture.
+
+The generator refuses, writing no artifact, on all of the following. **Every one was exercised
+against a deliberately corrupted copy of the real capture; each exits non-zero and leaves no file
+behind.**
+
+  1. source-capture SHA-256 mismatch
+  2. a header that is not the nine expected columns
+  3. any row whose field count is not nine
+  4. a duplicate whole row
+  5. a duplicate `(object_kind, identity)` in `E. OWNERSHIP`
+  6. an unknown section
+  7. an unsupported `object_kind` in a section it must interpret
+  8. an `UNCLASSIFIED` schema in section J
+  9. a routine identity carrying no argument list
+  10. an identity that does not decompose unambiguously (a dot inside an identifier)
+  11. a privilege row naming an object that has no `E. OWNERSHIP` row
+
+Identifiers are emitted through `format('%I')` and `quote_ident()`, never by string concatenation,
+and `PUBLIC` is emitted as the keyword rather than as a quoted role name.
+
+### Policy: target-only default-privilege groups
+
+A default-privilege rule present on the target but absent from the capture is target-only excess,
+and property 5 of the validated algorithm requires it to be removed. The implementation removes it
+— **but only when its default-owning role appears in the capture's authorized role set.**
+
+  * If the owning role **is** in the source capture's role set, the group is target-only excess for
+    a role this recovery is already authorized to act on. The reset drives it to its built-in
+    baseline, PostgreSQL deletes the row, and the replay does not restore it.
+  * If the owning role is **absent** from the source capture, the run **fails closed** before any
+    mutation, with the owner, object type and schema named in the error.
+
+The reason for the split is that a default-privilege rule is not scoped like an object grant. An
+unscoped rule (`ALTER DEFAULT PRIVILEGES FOR ROLE x` with no `IN SCHEMA`) governs future objects in
+**every** schema, including platform-managed ones. Deleting such a rule for a role the capture has
+never heard of would change a stranger platform role's future objects, in schemas this recovery is
+explicitly forbidden to touch, on the strength of a capture that says nothing about it. Refusing
+costs an operator decision; proceeding would be a silent out-of-scope change.
+
+Restricting removal to roles the capture names keeps the property that matters — genuine excess is
+removed for every role the recovery is authorized over — without extending the blast radius to
+roles it is not. On the LMS pair this branch is never taken: both sides hold the same six groups,
+owned by `postgres` and `supabase_admin`, and both roles are in the capture's role set.
+
+**This policy was not in the earlier design.** The first implementation refused *every* target-only
+group, which contradicted property 5; the synthetic fixture caught it on the first run.
+
+### Policy: the replay and verification skip rule
+
+An object whose captured ACL is NULL is at PostgreSQL's built-in default. If the target is **also**
+still NULL for that object, the two agree already and there is nothing to do. The replay therefore
+skips it, leaving the ACL NULL rather than materialising the default edges explicitly.
+
+Without that rule the recovery would rewrite every untouched object's ACL from NULL to an explicit
+array — on the LMS pair, all 13 row types plus every relation and routine that has never been
+granted on — creating provenance drift with no security benefit whatsoever.
+
+The verification mirrors the same predicate. A synthesized default edge belonging to an object that
+is NULL on both sides is **not** expected to appear in the target enumeration, and must not be
+reported as a missing captured edge. The first implementation omitted this mirror and aborted with
+"36 captured edges missing" — a false failure, caught by the artifact's own verification rather
+than by inspection.
+
+Two boundaries make the rule safe:
+
+  * **Columns are excluded from it.** A NULL `attacl` means "no column grants at all", not "fall
+    back to a default". A column edge is always replayed.
+  * **Only the default-edge case is exempt.** The skip applies solely where source and target are
+    both at the built-in default. Any real difference in effective privilege — a missing captured
+    edge on an object that is not at its default, or any target-only edge anywhere — still fails
+    the verification and rolls the entire run back.
+
+### The approved provenance residual, precisely
+
+PostgreSQL does not restore a NULL ACL. Once an object's ACL has been materialised, revoking back
+to `acldefault` leaves an explicit array, not NULL — tested directly. So an object whose captured
+ACL is NULL, and whose target has diverged, necessarily ends the run holding an explicit ACL
+byte-equal to its built-in default.
+
+The permission for that residual is **source-derived and conditional, not blanket**:
+
+  * The **permitted set** is computed from the source capture alone: every object whose captured
+    ACL state is NULL. For the LMS capture that is **18** objects — 2 routines, 3 sequences and 13
+    row types — listed by class and identity in the manifest.
+  * Permission is **conditional**. A residual is accepted only when the object's effective edges
+    are identical to the capture's and the *sole* difference is `default-derived` becoming
+    `explicit`. Any difference in grantee, grantor, privilege or grantability fails.
+  * Eligibility does **not** license drift. The artifact snapshots each object's provenance state
+    **before** the reset, and fails if an object that was NULL before the run is explicit after it.
+    An eligible object that the recovery itself pushed from NULL to explicit is a failure, not an
+    approved residual.
+  * Anything outside the permitted set that differs in provenance fails outright.
+  * The permitted count is an upper bound, not a prediction. How many actually drift depends on the
+    target: an object NULL on both sides is skipped and does not drift at all. For the LMS pair the
+    comparison recorded above predicts **5** of the 18 — the 2 routines and 3 sequences — with the
+    13 row types untouched.
+
+### Implementation hazard: PL/pgSQL alias collision
+
+In a `DO` block, a qualified reference such as `e.cls` resolves to a PL/pgSQL **variable** named
+`e` in preference to a table alias `e`, and a `record` variable that has not yet been assigned has
+no tuple structure. The result is a run-time `record "e" is not assigned yet` from a statement that
+reads as ordinary SQL.
+
+The template declares `e` and `g` as record variables, and originally also used `e` as a table
+alias inside `create temp table _p2k_want_edge … from _p2k_src_edge e`. That aborted the run. The
+aliases are now `se`/`so`, with a comment at the site recording why. **Any future edit to this
+template must avoid `e` and `g` as table aliases inside the `DO` blocks.** This is a real hazard
+rather than a typo: it fails at run time, not at parse time, so it survives static review.
+
+### Validation results
+
+Nothing below involved the restored LMS stack, staging or production.
+
+| Check | Result |
+|---|---|
+| Generator determinism | artifact and manifest **byte-identical** across repeated runs |
+| Refusal paths | all **11** refuse, exit non-zero, write no file |
+| Static lint / parse | the LMS artifact parses in full and aborts in **preflight** against a database it does not describe, mutating nothing |
+| Synthetic fixture | 308-row capture: grant options, third-party chains on both a relation and a row type, a grantor cycle, column ACLs including a system column, row types in all three ACL states, standalone types, a sequence, a procedure, default rules across three owners including a strict-subset and an empty rule |
+| Synthetic apply | 95 source edges, 17 objects, 12 default groups, 103 default edges, 16 roles → reset 6 passes / 45 revokes, replay 3 passes / 63 grants, `verify ok: 63 edges, 103 default rules, 1 approved provenance residual` |
+| Capture parity after apply | **8 differing lines**, every one attributable to the single object drift was injected on — one section E annotation, the two section I rows it now emits, and two section G counts moving to match |
+| Repeated-run fixed point | runs 2 and 3 identical (7 passes / 42 revokes, 63 grants); state after run 1 **byte-identical** to state after run 3 |
+| Rollback | failure injected after the final replay stage; post-abort capture **byte-identical** to the pre-run capture; a clean run afterwards converged to the same fixed point |
+
+The reset pass count differs between the first run and later ones (6 then 7) because the first
+starts from a diverged state and later ones from the converged one. That is convergence from any
+starting state, not idempotence — the run repeats the full reset and replay every time.
+
+### Manifest and workload reconciliation
+
+The manifest carries four full 64-character SHA-256 hashes — source capture, generator, template,
+generated artifact — each re-verified against the file it names. Every expected workload count was
+recomputed independently from the source capture and reconciles: 544 rows, 327 source edges
+(7 schema + 245 relation + 75 routine, with sections C and I empty), 71 owned objects, 6 default
+groups, 72 default edges plus 6 rule-exists markers accounting for all 78 section F rows, 6 roles,
+and 18 objects eligible for the provenance residual.
+
+**No part of this implementation is authorized for execution.** The artifact targets restored
+copies only, carries that prohibition in its own header, and has not been applied anywhere.
+
+## Independent adversarial audit — 2026-08-28
+
+Four independent auditors reviewed the generator, template, artifact, manifest and this note
+through separate lenses: generator hostile-input handling; SQL safety and PostgreSQL 17.6
+semantics; capture-to-artifact completeness and verification correctness; and claims versus
+evidence. Each worked read-only on the repository in its own disposable container. Every finding
+below was then re-verified independently before any correction was applied; the reproductions
+quoted are from that refutation pass, not from the auditors' reports.
+
+**Nothing was refuted.** Every consequential finding reproduced.
+
+### Gating result: none of the algorithm defects can fire on this target
+
+Measured read-only against the restored LMS stack, all zero: domains over array types in `public`;
+unscoped default-privilege rules; a role literally named `PUBLIC`; objects with a NULL ACL on the
+target; column ACLs; non-owner self-grant edges; grantable edges. The defects below were therefore
+latent for this pair — but they were real, and they are fixed rather than documented around.
+
+### Confirmed defects, and what changed
+
+| ID | Defect | Correction |
+|---|---|---|
+| Injection | `privilege_type` and a routine's argument list are the only capture fields interpolated **unquoted** (`format('%s')`). `EXECUTE` runs multiple statements, and the default-privilege replay runs under `SET ROLE` of a superuser. A payload using `COPY … TO PROGRAM` executed a shell command on the database host **and survived the rollback** — verification cannot undo non-transactional effects | the generator now validates `privilege_type` against an allowlist of PostgreSQL privilege keywords and rejects statement terminators, comment introducers, dollar-quoting and newlines in argument lists. Both refuse at generation time |
+| Leaf-peel scope | a column privilege is authorised by a **table-level** grant option, but leaf-peeling grouped by `(cls, ident)`, putting `public.t` and `public.t.col` in different groups. The table revoke then succeeds and **orphans the column grant**: the grantee keeps it and not even the owner can remove it, because only the recorded grantor may revoke and it has lost the authority | enumeration gained an object-family key; a column edge and its parent relation are peeled as one dependency group |
+| Self-grant | the predicate excluded every row sharing a grantee, so `owner → X` and `X → X` were **both** leaves. Revoking the owner edge first gives `ERROR: dependent privileges exist`; which happened depended on the plan | the exclusion is now the identical row only, plus an explicit carve-out so two self-grants by the same role do not block each other (without it the owner's own aclitems deadlocked) |
+| Subset-of-default | granting onto a **NULL** ACL materialises `acldefault` alongside the granted edge. Any captured ACL that is a strict subset of the default — `REVOKE EXECUTE … FROM PUBLIC` on a routine, the ordinary Supabase pattern, and the shape of **39 of the 41** captured routines — left extra edges and aborted **identically on every retry** | a TRIM phase after the replay removes anything present but not wanted, leaf-peeled like the reset |
+| `SET ROLE` test | preflight used `pg_has_role(…, 'USAGE')`, which reports inheritance. Since PG 16 that is independent of `SET` capability: measured `USAGE=t/SET=f` for one membership and `USAGE=f/SET=t` for another. The first passes preflight and then dies **mid-reset, after mutations** | the test is now `'SET'`, and object owners are included because a NULL-ACL type's default edges are synthesized with the owner as grantor |
+| `PUBLIC` role | `CREATE ROLE "PUBLIC"` is accepted and renders identically to the grantee-0 pseudo-role in both capture and enumeration, so replay would silently convert grants between them and verification is blind | preflight refuses when such a role exists |
+| Domain over array | a domain over an array has `typtype='d'` but `typcategory='A'`, so the filter meant to exclude true array types (where `GRANT` really is refused) also hides it — from the capture **and** from the target enumeration, so the "no target object absent from the capture" guard cannot see it either. Such a type is genuinely grantable and enforced | preflight refuses when one exists. **The capture query still has this hole and needs a separate fix plus a re-capture** — see remaining gaps |
+| Unscoped excess rules | a target-only **unscoped** default-privilege rule was deleted whenever its owner was named anywhere in the capture. Unlike an object grant it governs future objects in **every** schema, so this reached into platform-managed schemas | only `IN SCHEMA public` target-only rules are removable; unscoped ones fail closed |
+| Concurrent DDL | the transaction is READ COMMITTED with no lock on `public`, and the object-inventory check ran once. An object created after preflight had its entire ACL stripped and the run **committed reporting success** | verification re-checks the inventory before commit, so such a run rolls back |
+| Pass cap | `exit when passes > 200` left the loop with no assertion, so a silently incomplete reset could reach commit | both reset loops now assert zero remaining edges |
+| Schema NULL/NULL | the object replay skips objects already at the built-in default; the schema replay did not, yet verification's provenance check covers `schema` — so **two identical databases** aborted on the artifact's own check | the same guard is applied to the schema replay |
+| Grantor USAGE | a grantor that already lacks `USAGE` on `public` aborts mid-reset | preflight checks it up front |
+| Alias shadowing | `n` was a declared scalar and also a table alias in preflight check 8, resolving correctly only because it is scalar | renamed, with the hazard noted |
+
+Counter reporting was also corrected: the schema and object replay phases shared one counter, so the
+object notice printed a running total.
+
+### Contract amendment: what verification does and does not cover
+
+Contract 1 lists section H — role existence, attributes, membership, inheritance — under "must
+match exactly; any difference is a failure". An earlier implementation did not honour that and did
+not disclose the deviation. **Section H is now implemented** (see "Closing the audit gaps"). What
+remains true:
+
+  * The generator consumes sections A–F, H and I. **Section G is deliberately not consumed** — see
+    below for why it need not be.
+  * Preflight now verifies the captured role graph exactly — attributes for every role in the
+    closure, and every membership among those roles including its grantor, `admin_option`,
+    `inherit_option` and `set_option`, compared in both directions. Roles are never mutated: a
+    divergence is a refusal.
+  * Verification performs four checks: ACL-edge parity, default-rule parity, ownership unchanged,
+    and the provenance residual. It reads no RLS state.
+  * **"Exact effective-security parity" in the property list means ACL-edge parity**, proven with
+    set equality — not the `has_*_privilege` probing used in the synthetic experiments. Edge parity
+    implies effective parity **only because the role graph is unchanged**, which the artifact
+    assumes and does not verify. Role membership does change effective access: a grant to a role
+    the target's members no longer belong to confers nothing, and verification would still pass.
+  * **RLS remains a separate verification responsibility.** Two databases can pass every check in
+    the artifact and still differ in their row-level security state and policies.
+
+### Operating the artifact
+
+The audit found no runbook, and the gap is load-bearing rather than pedantic.
+
+  * **Connect as `supabase_admin`.** Not `postgres`: `postgres` cannot `SET ROLE` to
+    `supabase_admin`, which the default-privilege phase must act as, and preflight aborts.
+  * **Confirm the target database yourself.** The preflight cannot detect which database it is
+    connected to, and it would **pass against staging itself**, whose objects, owners and roles are
+    by construction exactly the capture's. A production database carrying the same application
+    schema would also pass and be overwritten. This is the artifact's most important limitation and
+    the only control on it is the operator.
+  * **Quiesce the target.** The advisory lock excludes other runs of this script, not concurrent
+    DDL. Verification now catches an object created mid-run and rolls back, but the run is wasted.
+  * **Expected notices**: preflight, reset objects, reset schema, reset complete, replay schema,
+    replay objects, trim, replay defaults, and finally `verify ok`. Absent `verify ok` immediately
+    before `COMMIT`, nothing was applied.
+  * **A structurally drifted restore refuses outright.** One extra object in `public` — a target one
+    migration ahead — aborts the whole run. There is no partial mode and no resume.
+  * **After a failure, do nothing.** It rolls back completely; re-running is safe and converges.
+  * **Verify afterwards** by re-running the capture and diffing against the source. The expected
+    residual is 13 edge rows plus 5 ownership annotations, on the 2 routines and 3 sequences named
+    above. Compare under the effective-security contract, not the provenance contract.
+
+### Remaining gaps, not fixed here
+
+  * ~~The capture query cannot represent a domain over an array type.~~ **CLOSED** — see "Closing
+    the audit gaps". The capture query changed, so the pinned staging capture is superseded.
+  * ~~The `SCOPE` block wrongly lists row types as derived.~~ **CLOSED** — corrected in the same
+    change.
+  * ~~A captured `empty` ACL cannot be restored onto a NULL target.~~ **CLOSED** — the replay now
+    materialises `{}` explicitly.
+  * **The synthetic evidence in earlier sections is not reproducible.** Those fixtures lived in
+    containers that were destroyed; no fixture SQL, capture or transcript is committed or hashed.
+    The source capture, generator, template and artifact **are** hash-pinned and were reproduced
+    byte-for-byte during this audit; the experiment narratives are not.
+  * The "Capture validation — local stack only" section is a historical snapshot (837 rows, E 58,
+    F 96, no sections I or J) carrying the same date as current material. Its figures are internally
+    consistent for the file it describes but do not match the current capture.
+
+### Re-validation after the corrections
+
+The corrected algorithm was re-proven on a fixture built specifically around the newly fixed cases:
+a self-grant under a grant option, a column grant made under a table-level grant option, and a
+routine whose ACL is a strict subset of the built-in default applied to a target where that ACL is
+NULL. All three previously failed; all three now succeed.
+
+| Check | Result |
+|---|---|
+| Apply | `reset objects: 4 passes, 28 revokes` · `replay objects: 30 grants` · `trim materialised defaults: 1 revoke` · `verify ok: 45 edges, 96 default rules, 0 residual` |
+| Subset-of-default routine | restored to exactly `{own_r=X/own_r,rb=X/own_r}` — previously an unrecoverable abort |
+| Self-grant and column-under-grant-option | both restored exactly; the reset no longer depends on row order |
+| Capture parity | re-capture after apply **identical** to the source capture, zero differing lines |
+| Fixed point | runs 2 and 3 identical; state after run 3 byte-identical to after run 1 |
+| Rollback | injected mid-run failure; state byte-identical to before the run |
+| New preflight guards | the `PUBLIC` role, domain-over-array and unscoped-target-only-rule guards each observed firing, and the domain guard observed *not* firing once the domain is dropped |
+| LMS artifact | still aborts in preflight against a database it does not describe; regenerated byte-identically across runs |
+
+## Closing the audit gaps — 2026-08-28
+
+Everything the four-lens audit left open is now closed, with one consequence that must be read
+before anything is applied: **the capture query changed, so the pinned staging capture, the
+generated artifact and its manifest are superseded pending regeneration.** They are retained for
+review and are marked as such in the artifact header and the manifest's `status` field. Nothing
+was applied anywhere; staging was not contacted.
+
+### Domains over arrays are now captured
+
+An ACTUAL array type is the one PostgreSQL auto-created for some element type — it is that
+element's `typarray`. The old predicate excluded by `typcategory = 'A'`, which also caught a
+**domain over an array** (`typtype 'd'`, `typcategory 'A'`), a type that is independently grantable
+and enforced. Proven in isolation on 17.6:
+
+| Case | Result |
+|---|---|
+| actual array type | `GRANT` refused: `cannot set privileges of array types` |
+| multirange type | `GRANT` refused: `cannot set privileges of multirange types` |
+| domain over an array | `{own_r=U/own_r,rb=U*/own_r,third=U/rb}` — grant option **and** third-party grantor round-trip |
+| enforcement | a role without USAGE gets `permission denied for type d_arr` declaring a column of it; a role with USAGE succeeds |
+| new predicate over all 14 types in the fixture | 7 true arrays excluded, multirange excluded, domain-over-array **included**, everything else unchanged |
+
+The predicate is now `not exists (select 1 from pg_type et where et.oid = t.typelem and et.typarray
+= t.oid)`, applied identically in the capture and in the recovery's target enumeration — they must
+mirror each other or the fail-closed "unknown object" guard has a hole matching the capture's. The
+stale `SCOPE` block that called row types and arrays "derived, not independently grantable" is
+corrected.
+
+### Empty ACLs can now be restored
+
+`{}` and NULL are different states: NULL means the built-in defaults apply, `{}` means nobody holds
+anything, not even the owner. The replay had no edge to grant for an empty ACL, so an object
+captured as empty whose target still held NULL was unreachable and verification refused.
+
+Tested for schema, relation, sequence, routine and type. One sequence works for all five:
+
+```
+GRANT <one privilege> ON <class> <object> TO <owner>;
+REVOKE ALL ON <class> <object> FROM <owner>, PUBLIC;
+```
+
+The grant forces the ACL into existence; the revoke empties it. `<owner>` and `PUBLIC` are the only
+two principals `acldefault` ever names, so nothing else can survive. **Owner-effective rights are
+preserved in the sense that matters**: ownership is not an ACL right, so after the ACL reaches `{}`
+the owner still holds no *granted* privilege (correct — that is what `{}` means) but retains full
+ownership authority and can still `ALTER` and re-`GRANT`, which was verified directly.
+
+Schemas are materialised last, after the default-privilege phase, because emptying `public` removes
+USAGE from everyone and would break any object work that followed. `ALTER DEFAULT PRIVILEGES … IN
+SCHEMA` does not require USAGE, so the default phase is unaffected. Any object class outside those
+five **fails closed** in preflight rather than being silently skipped.
+
+### Role-context verification is implemented
+
+The generator now consumes section H and stages the captured role closure: attributes for every
+role, and every membership among those roles with its grantor, `admin_option`, `inherit_option` and
+`set_option`. Preflight compares both **in both directions** — a captured membership that is
+missing or altered, and a membership the target has that the capture does not record, are each a
+refusal. Roles are never created, altered or dropped; a divergent role graph is a refusal, not a
+repair.
+
+This matters because ACL-edge parity implies effective-access parity **only while the role graph is
+unchanged**: a privilege held by a group confers nothing on a principal that is no longer a member.
+The capture's role closure is recursive and bidirectional, so a role that holds no direct grant but
+belongs to a group that does is pulled in — verified in the harness by a `memb -> grp` edge where
+`memb` holds nothing directly.
+
+**Section G is derived, and is deliberately not replayed.** Its rows are counts of grantees observed
+in sections A–D — an aggregate of the very edges the artifact already replays individually. A G row
+cannot carry information that is not derivable from those edges, so replaying it would be replaying
+the same facts twice, and verifying it would be verifying the artifact against its own output. The
+G counts do move when the recovery removes excess, which is the expected consequence of fixing the
+edges, not an independent fact to restore.
+
+### Reproducible test harness
+
+`scripts/test_phase_2k_acl_recovery.sh` builds a disposable PostgreSQL 17.6 database, populates it
+with every supported class and ACL state, captures it with the committed capture query, generates a
+real artifact with the real generator, diverges the target in both directions in every class,
+applies, and asserts. `scripts/p2k_parity_check.py` does the capture comparison and classifies each
+difference. **43 assertions, all passing**, covering:
+
+  * every relation kind with a row type, sequences, columns including a **system column** (`ctid`),
+    routines (function and procedure), and all five type classes including a **domain over an array**
+  * NULL, empty and explicit ACL states, and a routine ACL that is a strict **subset** of the
+    built-in default
+  * third-party grant chains on both a relation and a row type, a self-grant, and a column grant
+    made under a table-level grant option
+  * scoped and global default-privilege rules, including a strict-subset rule and an empty rule
+  * role-graph parity **and four deliberate mismatches** — a removed membership, a changed
+    `admin_option`, an extra membership, and a changed role attribute — each refused before any
+    mutation, with the privilege state proven untouched
+  * rollback from an injected mid-run failure, and fixed-point convergence across three runs
+  * twelve generator refusal cases, including the injected `privilege_type` and routine-argument
+    payloads
+
+One harness defect found while building it is worth recording, because it would silently corrupt
+any future test: **`pg_isready` returns before the Supabase image finishes initialising**, and the
+entrypoint alters `anon`/`authenticated`/`service_role` after that point. Capturing inside that
+window records role attributes that then change underneath the run, which reads as a role-graph
+divergence that never happened. The harness now waits for `pg_roles` to stop moving before it does
+anything.
+
+### Artifact provenance is now pinned to the capture query
+
+The artifact header and manifest carry the SHA-256 of
+`supabase/discovery/phase_2k_acl_capture.sql` alongside the source-capture hash. A capture produced
+by a different query version may describe a different set of objects, and the artifact would then
+be reasoning about facts the capture never recorded. The generator also accepts `--superseded`,
+which stamps a `DO NOT APPLY` banner into the artifact and sets the manifest `status`.
+
+### Target confirmation — read this before running anything
+
+This procedure replaces the earlier note that the operator "must confirm the target".
+
+  1. **The artifact is for a restored copy on this machine only.** It is not for staging, not for
+     production, and not for any hosted database. The only sanctioned target is a local container
+     holding a restore.
+  2. **Connect as `supabase_admin`.** The default-privilege phase must `SET ROLE` to the rules'
+     owners, and `postgres` **cannot** `SET ROLE` to `supabase_admin` — preflight aborts with
+     `current_user cannot SET ROLE to supabase_admin`. `postgres` is insufficient; this is not a
+     preference.
+  3. **The preflight is not a project-identity guarantee.** It verifies structure — objects,
+     owners, roles, schema classification — not *which database you are connected to*. Staging
+     itself would satisfy every structural check, because the capture was taken from it. A
+     production database carrying the same application schema would also pass.
+  4. **Verify the connection yourself, immediately before running.** Confirm the container name and
+     that it is a local restore, e.g. `docker ps` shows the expected local container and
+     `psql -c "select current_database(), inet_server_addr(), inet_server_port()"` shows a local
+     address — not a hosted endpoint. Confirm no `PGHOST`/`PGSERVICE`/`DATABASE_URL` in the
+     environment points elsewhere. If any of that is unclear, stop.
+  5. **Quiesce the target.** The advisory lock excludes other runs of this script, not concurrent
+     DDL. Verification catches an object created mid-run and rolls back, but the run is wasted.
+  6. **Expect `verify ok` immediately before `COMMIT`.** Without it, nothing was applied.
+
+### Status of the pinned artifact
+
+| Item | State |
+|---|---|
+| Source capture `7c3164fd…ce829c` | **SUPERSEDED — pending re-capture.** Taken with the pre-amendment capture query. Still valid as a record of staging's state at 2026-08-28; not valid as generator input |
+| Generated artifact | **SUPERSEDED — DO NOT APPLY.** Banner in the file, `status` in the manifest. Retained for review |
+| Manifest | superseded with the artifact; now also records the capture-query hash and label |
+| Next step | operator approval of the amended capture query, then a fresh staging capture, then regeneration. **Not yet.** |
 
 ## Audit corrections — 2026-08-28
 
@@ -1153,7 +1629,7 @@ proven in isolation** across all six supported classes — exact effective-secur
 grantor graph, exact default-rule parity, complete removal of target-only excess, atomic rollback
 and fixed-point convergence — after two further defects found during that cycle were corrected.
 
-What is still blocked is **authorization**: no executable artifact exists or is approved, and the
+What is still blocked is **authorization**: the artifact exists but running it is not approved, and the
 algorithm has never run against a Supabase-hosted database. Two limits remain, and neither is a
 gap in what is claimed: object classes outside the scope contract are unimplemented and refuse
 rather than pass, and row-level security is verified by separate artifacts rather than represented
@@ -1166,4 +1642,4 @@ schema-scope blockers. Every construct in it is a strict subset of what the algo
 proven against.
 
 The next step is review of this note, of the amended capture, and of the recovery specification.
-Generating repair SQL remains a separate decision that this note does not make.
+Applying the artifact remains a separate decision that this note does not make.

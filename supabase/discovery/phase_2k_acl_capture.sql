@@ -89,7 +89,12 @@
 --   * multirange types — PostgreSQL refuses to set their privileges
 --     ("cannot set privileges of multirange types"), directing callers to the
 --     range type instead, so they are not independently grantable.
---   * array types and table row types — derived, not independently grantable.
+--   * ACTUAL array types — PostgreSQL refuses GRANT on them outright. Identified
+--     by being their element type's typarray, not by typcategory.
+--   * multirange types — PostgreSQL refuses GRANT on them outright.
+--   NOTE: table row types AND domains over arrays ARE captured. Both are
+--   independently grantable and enforced; an earlier revision of this block
+--   wrongly listed them as derived.
 --   * (none — system columns ARE captured; see SYSTEM COLUMNS note below)
 --   * large objects, tablespaces, foreign data wrappers, databases
 --   * role passwords (deliberately — no secrets are read)
@@ -177,9 +182,17 @@ sch as (
 --     accept GRANT USAGE and store typacl.
 --   * multirange ('m') is refused: "cannot set privileges of multirange types.
 --     HINT: Set the privileges of the range type instead."
---   * array types (typcategory 'A') are refused: "cannot set privileges of array
---     types. HINT: Set the privileges of the element type instead." Writing
+--   * ACTUAL array types are refused: "cannot set privileges of array types.
+--     HINT: Set the privileges of the element type instead." Writing
 --     GRANT ... ON TYPE x[] is a syntax error, and the array's typacl stays NULL.
+--     They are identified by being their element type's typarray, NOT by
+--     typcategory = 'A'. A DOMAIN over an array (typtype 'd', typcategory 'A')
+--     IS grantable and enforced -- tested: revoking USAGE makes
+--     has_type_privilege() false and a column declaration of it fail with
+--     "permission denied for type", and it carries grant options and third-party
+--     grantors like any other type. Excluding by typcategory dropped it from the
+--     capture AND from the recovery's target enumeration, so the fail-closed
+--     "unknown object" guard could not see it either.
 --
 -- RELATION-BACKED ROW TYPES ARE CAPTURED. Every table, partitioned table, view,
 -- materialized view and foreign table has a composite row type of the same name,
@@ -222,7 +235,12 @@ typ as (
   left join pg_class c on c.oid = t.typrelid
   where n.nspname = 'public'
     and t.typtype in ('e','d','c','r','b')       -- multirange 'm' excluded: GRANT refused
-    and t.typcategory <> 'A'                     -- array types excluded: GRANT refused
+    -- An ACTUAL array type is the one PostgreSQL auto-created for some element
+    -- type, i.e. it is that element's typarray. Testing typcategory = 'A' instead
+    -- was wrong: a DOMAIN over an array also has typcategory 'A' but IS
+    -- independently grantable and enforced, and was being dropped silently.
+    and not exists (select 1 from pg_type et
+                    where et.oid = t.typelem and et.typarray = t.oid)
     and (c.oid is null or c.relkind in ('c','r','p','v','m','f'))
 ),
 
