@@ -2018,13 +2018,14 @@ Never edit an already-applied migration and never skip a dependency.
 9. 20260824000100_lms_phase_2h_governed_review.sql
 10. 20260824000200_lms_phase_2i_automation.sql
 11. 20260824000300_lms_phase_2j_scheduler_readiness.sql
+12. 20260824000400_lms_phase_2k_legacy_acl_hardening.sql
 
 This is a draft catch-up sequence only. The unapplied migrations for 2B, 2C, 2E, 2F,
 2G, 2H, 2I, and 2J have been defensively amended in the local working tree: each of the
 13 affected new tables is fully revoked before any intended authenticated SELECT is
-restored. The exact legacy corrective revocations, routine-drift treatment, backup/restore
-demonstration, and complete plan still require review. Nothing in this list is authorized
-to run remotely.
+restored. The exact legacy corrective revocations are now designed and locally validated
+(section 10); routine-drift treatment and the complete plan still require review. Nothing
+in this list is authorized to run remotely.
 ```
 
 ## 7. Divergence from expectation
@@ -2151,3 +2152,58 @@ migration was applied and neither staging nor production was contacted during th
 The outstanding function-by-function RPC-review item is therefore closed. This finding does
 not approve the migration sequence and does not change the separate legacy table-ACL or
 `rls_auto_enable()` decisions.
+
+## 10. Legacy table-ACL hardening design and local validation
+
+Recorded 2026-08-28 under the operator-approved scope: design explicit corrective revocations
+for the ten staging relations and require local testing before any staging application.
+
+### Selected correction
+
+The catalogue-backed staging capture contains 80 direct ACL rows for `anon` and
+`authenticated` across the ten relations in Query 7:
+
+- 72 unwanted rows: four privileges (`MAINTAIN`, `REFERENCES`, `TRIGGER`, `TRUNCATE`) on
+  18 relation/grantee pairs;
+- eight intended rows: `SELECT` for `authenticated` on `football_fixtures`,
+  `football_team_form`, `football_teams`, `player_picks`, `pot_gameweeks`, `pot_players`,
+  `pots` and `profiles`.
+
+No direct table access is intended for `anon`. Neither API role requires direct access to
+`pot_fixture_test_results` or `pot_gameweek_processes`. Repository UI calls and the original
+setup SQL corroborate the eight authenticated `SELECT` grants.
+
+Migration `20260824000400_lms_phase_2k_legacy_acl_hardening.sql` therefore revokes only the
+four unwanted privilege types from their exact current grantees. It does not use a blanket
+revocation and does not recreate policies or ownership. Its transaction fails closed if a
+required relation or API role is absent, and its postconditions require:
+
+- no non-`SELECT` direct privilege for either API role on the ten relations;
+- all eight intended authenticated `SELECT` grants still effective;
+- no authenticated `SELECT` on the two internal relations; and
+- no direct privilege of any listed kind for `anon`.
+
+### Disposable restored-copy test
+
+The migration was applied only to local container `supabase_db_last_man_standing` as
+`supabase_admin`.
+
+| Check | Result |
+|---|---|
+| Relevant ACL rows before | 80 |
+| First application | exit `0`, transaction committed, empty stderr |
+| Relevant ACL rows after | 8 |
+| Excess rows removed | 72 of 72 |
+| Remaining rows | exactly the eight intended authenticated `SELECT` grants |
+| Second application | exit `0`, empty stderr; same postcondition (idempotent) |
+
+The local restored copy is now intentionally ACL-hardened and no longer represents the raw
+post-restore ACL baseline. Backup artifacts were not changed. No staging or production contact
+occurred and this test does **not** authorize remote application.
+
+### Decision state
+
+The ten-relation corrective design is **complete and locally validated**. Remote staging
+application remains part of the separately reviewed exact migration plan. The remaining
+discovery decision is treatment of `rls_auto_enable()`; completing it still will not itself
+authorize migrations.
