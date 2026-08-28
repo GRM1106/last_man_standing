@@ -2,6 +2,40 @@
 
 **Design only. No executable repair SQL exists, and none is authorized by this note.**
 
+> ## ⛔ THIS DESIGN IS NOT SAFE TO BUILD ON — three mechanisms are empirically disproven
+>
+> An adversarial review (2026-08-28, 50 agents, 18 confirmed findings) established that the core
+> repair algorithm below **does not work as specified**. Verified directly on a disposable
+> PostgreSQL 17.6 container built from the same image as the LMS stack:
+>
+> **1. `GRANT … GRANTED BY <grantor>` does not exist for object privileges (§6).** All forms fail
+> with `ERROR: grantor must be current user`, including when run as the superuser
+> `supabase_admin`. The "where available" branch of §6 is *never* available. Grantor preservation
+> as designed is impossible by that route.
+>
+> **2. The §1 reset is grantor-blind and does not converge (§1, §4).** With an ACL containing
+> `grantee_c=r/bystander`, a superuser `REVOKE ALL … FROM grantee_c` had **no effect**, and
+> repeating it still had no effect. `REVOKE … GRANTED BY bystander` also failed with
+> `grantor must be current user`. The claim that "reset must remove what it does not recognise"
+> is **false as written** — a privilege granted by a third role survives the reset, so
+> reset-then-grant does not remove all excess. The only mechanism observed to remove it was
+> `REVOKE GRANT OPTION FOR … FROM bystander CASCADE`, which is a different algorithm than this
+> note specifies.
+>
+> **3. Replay has no grantor-dependency ordering (§2, §8).** A chained grant requires the
+> intermediate grantor to hold its grant option *before* the dependent grant is replayed, and the
+> capture's total order (`object_identity`, then `grantee`) actively sorts them the wrong way
+> when the dependent grantee sorts alphabetically first. Preflight as specified cannot detect it.
+>
+> **Consequence:** the *capture* format is sound and validated; the *recovery mechanism* is not.
+> Generating an executable artifact from this note would produce a repair that silently fails to
+> remove third-party grants while reporting success. The sections below are retained as the
+> starting point for a corrected design, **not** as an approved specification. Every claim they
+> make about reset, grantor preservation and convergence must be re-derived against the behaviour
+> above.
+>
+> The remaining findings are recorded inline and in "Audit corrections" at the end.
+
 This describes how a later recovery artifact would reproduce a source database's privilege state
 on a target whose defaults differ. It is written to be reviewed *before* anything is generated,
 because the defect it addresses was caused by trusting a generated artifact whose assumptions
@@ -70,6 +104,13 @@ Two different enumerations are involved, and conflating them is the trap:
 inspects that object's current ACL on the target and revokes every non-owner grantee it finds —
 including grantees that appear nowhere in the source capture.
 
+> **Open defect (audit finding 10):** exempting the owner makes the target's floor the owner's
+> full default rights, so a source object with an empty ACL — a real, deliberate state produced
+> by revoking the owner's own privileges — can never be reproduced. That silently bakes in the
+> one-directional assumption this note elsewhere warns against. The capture already distinguishes
+> `acl empty: no privileges` from `acl null: defaults apply` in section E; the reset must honour
+> that distinction rather than assume the owner always retains everything.
+
 **Source-only grantee enumeration is insufficient**, and this is the crux of the whole design. A
 grantee the target holds but the source does not will never appear in the source capture, so a
 reset driven by source grantees cannot revoke it. That excess is exactly the 2W defect: the
@@ -105,7 +146,7 @@ not who holds it. It is pre-approved under the provenance-parity contract in §7
 The artifact issues no `ALTER … OWNER`, no `REASSIGN OWNED`, and no `SET SESSION AUTHORIZATION`.
 
 Ownership is captured to be **verified**, not modified. An owner mismatch is a stop condition
-(§6), not something to correct silently — changing ownership alters who implicitly holds full
+(the §6 stop-condition table), not something to correct silently — changing ownership alters who implicitly holds full
 rights, a larger change than the drift being repaired.
 
 ### 4. Depend on no target default privileges
@@ -147,7 +188,7 @@ around privilege replay. Constraints:
 
 - The controlled context applies to **privilege replay only**. It never spans object creation or
   alteration, so it cannot change ownership (§3).
-- It is established and released within the single transaction of §7.
+- It is established and released within the single transaction of §8.
 - **If the recorded grantor cannot be reproduced — the role is absent, or the executing role
   cannot legitimately act as it — the artifact fails closed and rolls back.** It does not
   substitute a different grantor, and it does not fall back to the executing role. A privilege
@@ -185,8 +226,13 @@ pre-approved difference.**
 
 | Field | Pre-approved difference |
 |---|---|
-| `acl_source` | `default-derived` → `explicit` for current-object privileges replayed under §2. **This is the only pre-approved difference.** |
+| `acl_source` (sections A–D) | `default-derived` → `explicit` for current-object privileges replayed under §2 |
+| `acl_source` (section E) | `ownership (acl null: defaults apply)` → `ownership`, for the **same** objects. This is a necessary consequence of the first: a `default-derived` A–D row exists only because the object's ACL is NULL, and replaying it explicitly makes that ACL non-NULL, which changes section E's annotation for that object. Omitting it made Contract 2 self-contradictory — any run exercising the pre-approved difference was forced to roll back |
 | grantor | **none pre-approved** — see §6; a grantor mismatch is a failure |
+
+Both `acl_source` differences are pre-approved **only for objects whose A–D rows were
+`default-derived` at the source**. Any other `acl_source` change, on any other object, is a
+failure.
 
 Anything not in that table is a failure, including any `acl_source` change other than the one
 named. "Pre-approved" means enumerated in this note before the run, not judged afterwards.
@@ -204,7 +250,7 @@ The repair runs as one transaction. Nothing is left half-applied:
 ```
 begin
   acquire scoped advisory lock          -- pg_advisory_xact_lock, released on commit/rollback
-  run all preflight checks (§6)         -- before any change
+  run all preflight checks (§6 table)   -- before any change
   reset privileges and default rules    -- §1, §5
   replay privileges and default rules   -- §2, §5, §6
   verify parity                         -- §7, both contracts, inside the transaction
@@ -262,8 +308,15 @@ removed by the expected role.
 - It does not restore role passwords. Recovery-envelope item 7 (`--no-role-passwords`) is a
   separate, still-open gap, and the capture deliberately reads no secrets.
 - It does not create or alter roles. Missing roles are a stop condition.
-- It covers schema `public` only. Other schemas, large objects, tablespaces, foreign data wrappers
-  and databases are out of scope; extending scope requires extending the capture **first**.
+- It covers schema `public` only, **with one exception**: the capture's section F also reports
+  default-privilege rules with `defaclnamespace = 0`, labelled `(all schemas)`, which apply
+  database-wide. §5 instructs that such rules be reset and reproduced, so the design's blast
+  radius is wider than `public` and the earlier flat "public only" statement was inaccurate.
+  Other schemas' object privileges, large objects, tablespaces, foreign data wrappers and
+  databases remain out of scope; extending scope requires extending the capture **first**.
+- It does **not** capture `pg_type.typacl`. Privileges on TYPEs and DOMAINs are invisible to the
+  capture even though section F reports `future type` rules, and a NULL `typacl` confers `USAGE`
+  to `PUBLIC` — so a source that revoked it cannot be distinguished from one that did not.
 - It is not a substitute for verifying schema and data, which section 2U covers.
 
 ## Capture validation — local stack only, 2026-08-28
@@ -282,7 +335,7 @@ and is not committed.
 | Ordering | re-sorting by `1,3,5,7,2,4,6,8,9` reproduces file order exactly |
 | Routine identities | 166 rows, all identity-argument form, **zero** OID suffixes |
 | Secrets | zero matches for password/passwd/secret/token/hash/md5/scram/`sbp_`/`eyJ` |
-| Expected roles | `PUBLIC`, `anon`, `authenticated`, `service_role` all present in G and H |
+| Expected roles | `anon`, `authenticated`, `service_role` present in **G and H**; `PUBLIC` present in **G only** — it is excluded from the role closure by construction, so it cannot appear in H. The earlier claim that all four appear in both was wrong. |
 | Membership controls | 25/25 rows carry grantor, `admin_option`, `inherit_option`, `set_option` |
 | Closure integrity | 20 roles closed, 25 edges, 18 distinct endpoints — **all inside the closed set** |
 | `PUBLIC` handling | absent from the closed role set, as a pseudo-grantee should be |
@@ -336,17 +389,54 @@ any other target; synthetic CSVs were deleted and none entered the repository. T
 was confirmed **byte-identical to its pre-test baseline** — same container ID, same
 `StartedAt`, 12 tables, 41 functions, 0 column ACLs, and no synthetic object present.
 
-**The capture is now validated for all sections A–H.**
+**Coverage, stated precisely.** No single run exercised all sections: locally C was 0 and D was
+166; synthetically D was 0 and C was 2. Coverage is a **union across two different databases**,
+not one end-to-end validation. Field-level assertion was performed only for section C's 2
+synthetic rows; sections A, B, D, E, F, G and H were validated structurally — they executed,
+produced well-formed rows in the fixed contract, ordered deterministically and reproduced
+byte-identically — but their values were not asserted row-by-row against an independent
+expectation. Saying the capture is "validated for all sections A–H" without those qualifications
+overstated it.
 
 ## Status
 
 | Item | State |
 |---|---|
-| Capture query | written, **validated on the local stack** (section C unexercised) |
+| Capture query | written; executed and deterministic on the local stack **and** in a synthetic container. Section C field-asserted; A, B, D–H structurally validated only |
 | Output format | proposed, **awaiting review** |
 | Recovery artifact | **not designed in executable form, not generated, not applied** |
 | Gate | `NOT READY` — unchanged by this note |
 
-The next step is review of the capture's output contract. Generating repair SQL before that
-contract is agreed would repeat the original mistake: an artifact whose assumptions were never
-examined.
+## Audit corrections — 2026-08-28
+
+An adversarial review (50 agents, 4 lenses) confirmed 18 findings after refutation. Classification
+and disposition:
+
+| # | Finding | Class | Disposition |
+|---|---|---|---|
+| 6 | `GRANT … GRANTED BY` rejected for object privileges | **substantive blocker** | verified independently; banner added; §6 mechanism void |
+| 7 | Reset is grantor-blind and does not converge | **substantive blocker** | verified independently; banner added; §1/§4 claim false as written |
+| 8 | Replay lacks grantor-dependency ordering | **substantive blocker** | banner added; capture's total order sorts dependents wrongly |
+| 10 | Owner exemption bakes in the one-directional assumption | **substantive blocker** | recorded as an open defect in §1 |
+| 9, 12 | Contract 2 self-contradictory — section E `acl_source` also changes | correctness | second pre-approved difference added |
+| 1 | Section E schema row lacked the null/empty annotation | correctness | fixed in the capture |
+| 2 | `pg_type.typacl` never captured | completeness gap | recorded in the capture's scope block and here |
+| 3 | Empty `defaclacl` left no trace | completeness gap | unconditional existence row added to section F |
+| 4 | `attnum > 0` excludes system columns on an unstated assumption | completeness gap | assumption now stated in the capture |
+| 5 | Scope limits lived only in this note | completeness gap | scope block added to the capture itself |
+| 11 | `PUBLIC` claimed present in section H | correctness | corrected — it is in G only, by construction |
+| 13 | "byte-identical" container claim | correctness | corrected to "unchanged on every dimension checked" |
+| 14, 15 | Coverage overclaimed as "validated for all A–H" | correctness | narrowed; union-across-two-databases stated |
+| 16 | "public only" untrue — section F includes all-schemas rules | correctness | corrected |
+| 17, 18 | Cross-references pointed at §6/§7 instead of §8 | correctness | fixed |
+
+No finding was dismissed as a false positive. Findings 6 and 7 were re-verified by direct
+execution on a disposable PostgreSQL 17.6 container rather than accepted on the reviewers' word,
+because two review agents ran while the safety classifier was unavailable.
+
+## Status
+
+The **capture** is sound and its corrections are applied. The **recovery mechanism is not safe to
+build on** — see the banner at the top. The next step is not generating repair SQL; it is
+redesigning reset, grantor preservation and replay ordering against the demonstrated PostgreSQL
+behaviour, then re-reviewing.

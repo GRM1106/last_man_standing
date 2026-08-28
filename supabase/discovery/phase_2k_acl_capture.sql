@@ -68,10 +68,31 @@
 -- Rows reconstructed via acldefault() are default-derived; rows from a stored ACL
 -- are explicit. Conflating them is what produced the 2W divergence.
 --
+-- SYSTEM COLUMNS: section C filters attnum > 0, so ACLs on system columns
+-- (ctid, xmin, cmin, xmax, cmax, tableoid — which DO exist as pg_attribute rows
+-- on 17.6) are not captured. Granting privileges on a system column is not
+-- ordinarily possible, but this exclusion is an assumption, not a proof, and it
+-- was not exercised by validation.
+--
 -- COLUMN ACLs ARE DIFFERENT and must not be reconstructed. A NULL pg_attribute
 -- .attacl means "no column-specific privileges exist; table-level applies" —
 -- there are no built-in column defaults to derive. Section C therefore emits rows
 -- only where attacl IS NOT NULL, and every such row is explicit by construction.
+--
+-- ---------------------------------------------------------------------------
+-- SCOPE — WHAT THIS DOES *NOT* CAPTURE
+-- ---------------------------------------------------------------------------
+-- Despite the title, this is complete only within a declared scope. Out of scope:
+--   * schemas other than 'public' (sections A-E are public-only)
+--   * pg_type.typacl — privileges on TYPEs and DOMAINs are NOT captured, even
+--     though section F reports 'future type' default rules. A NULL typacl
+--     confers USAGE to PUBLIC, so a source that REVOKEd it is indistinguishable
+--     here from one that did not. See the design note.
+--   * system columns (attnum <= 0); section C captures user columns only
+--   * large objects, tablespaces, foreign data wrappers, databases
+--   * role passwords (deliberately — no secrets are read)
+-- Section F is the ONE exception to public-only: it also reports rules with
+-- defaclnamespace = 0, labelled '(all schemas)', which apply database-wide.
 --
 -- SECTIONS
 --   A. SCHEMA PRIVILEGES        privileges on schema public itself
@@ -273,7 +294,10 @@ union all
 -- E. Every object and its owner, independent of any privileges.
 select 'E. OWNERSHIP'::text, 'schema'::text, s.nspname::text,
        pg_get_userbyid(s.nspowner)::text,
-       '-'::text, '-'::text, '-'::text, '-'::text, 'ownership'::text
+       '-'::text, '-'::text, '-'::text, '-'::text,
+       (case when s.nspacl is null then 'ownership (acl null: defaults apply)'
+             when cardinality(s.nspacl) = 0 then 'ownership (acl empty: no privileges)'
+             else 'ownership' end)::text
 from sch s
 union all
 select 'E. OWNERSHIP'::text, r.kind::text, (r.nspname || '.' || r.relname)::text,
@@ -310,6 +334,29 @@ select 'F. DEFAULT PRIVILEGES'::text,
        d.privilege_type::text, d.is_grantable::text,
        'default-privilege-rule'::text
 from def_acl d
+
+union all
+
+-- F. Unconditional existence row per default-privilege RULE, mirroring section E.
+--    A rule whose defaclacl is an empty array produces no rows above, so without
+--    this an emptied rule (e.g. ALTER DEFAULT PRIVILEGES ... REVOKE ALL ... FROM
+--    <owner>) would leave no trace at all and a repair could not tell it from an
+--    absent rule.
+select 'F. DEFAULT PRIVILEGES'::text,
+       (case d2.defaclobjtype
+          when 'r' then 'future table'   when 'S' then 'future sequence'
+          when 'f' then 'future routine' when 'T' then 'future type'
+          when 'n' then 'future schema'
+          else d2.defaclobjtype::text end)::text,
+       coalesce(dn2.nspname, '(all schemas)')::text,
+       pg_get_userbyid(d2.defaclrole)::text,
+       '-'::text, '-'::text, '-'::text, '-'::text,
+       (case when cardinality(d2.defaclacl) = 0
+             then 'default-privilege-rule exists (acl empty: no privileges)'
+             else 'default-privilege-rule exists' end)::text
+from pg_default_acl d2
+left join pg_namespace dn2 on dn2.oid = d2.defaclnamespace
+where dn2.nspname = 'public' or d2.defaclnamespace = 0
 
 union all
 
