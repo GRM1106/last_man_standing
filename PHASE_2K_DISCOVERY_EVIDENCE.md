@@ -20,35 +20,36 @@ explicitly `READY` **and** the exact plan is separately approved.
 
 | Gate | Status |
 |---|---|
-| BACKUP / RESTORE OPERATOR GATE | **`NOT READY`** — `READY` was withdrawn 2026-08-28, see 2W |
+| BACKUP / RESTORE OPERATOR GATE | **`NOT READY`** — ACL recovery is now demonstrated locally (2X), but envelope items 1 and 7 still require explicit acceptance |
 
 Update only when every row below is satisfied. Any unchecked row keeps the gate `NOT READY`.
 
-> ## ⚠ `READY` WITHDRAWN — the restore does not reproduce staging's security posture
+> ## ⚠ `READY` REMAINS WITHDRAWN — ACL parity is fixed; residual acceptance is incomplete
 >
 > The gate was moved to `READY` on 2026-08-27 and is **withdrawn** as of 2026-08-28. The
 > 148-vs-206 discrepancy has been **resolved and its cause is understood**: the entire 58-row
 > gap is in the ACL sections. Schema and data restored correctly; **privileges did not**.
 >
-> The restore-demonstrated row is therefore **unchecked** and the gate returns to `NOT READY`.
-> This is not a documentation defect — a restored copy that carries broader privileges than its
-> source is a materially different database. See section 2W.
+> Section 2X supersedes the ACL outcome: the generated recovery was applied only to the confirmed
+> disposable local restore, committed atomically, and independently verified at 0 missing and 0
+> extra effective-security facts. The restore-demonstrated row is now satisfied.
 >
-> The cause is understood but **not fixed**. No repair has been designed or applied.
+> The gate nevertheless remains `NOT READY`. The acceptance in 2V did not name recovery-envelope
+> item 1 (logical backup, not PITR) or item 7 (role passwords are not captured). Those two material
+> limits require an explicit operator judgement; successful ACL recovery cannot accept them.
 
 - ☑ Exact target project named: `evhiixndiuwwodsouyhf` (`last-man-standing-staging`)
 - ☑ Backup mechanism identified: pinned Supabase CLI `2.116.0` logical dump
   (`roles.sql`, `schema.sql`, `data.sql`) plus the companion migration ledger
 - ☑ Backup actually taken: completed 2026-08-27T21:29:07Z; see section 2O
-- ☐ Restore **demonstrated** into a scratch database — **UNCHECKED 2026-08-28.** Schema and data
-  restored correctly, but the restored copy does **not** reproduce staging's ACL state: 26 vs 18
-  table grants and 84 vs 34 routine grants. A restore that does not reproduce the source's
-  security posture is not a demonstrated restore. See section 2W.
+- ☑ Restore **demonstrated** into a scratch database — schema, data and effective ACL state now
+  reproduce staging. The ACL recovery removed 322 target-only excess grants and independent parity
+  reported 0 missing / 0 extra / 0 residual effective-security facts; see section 2X.
 - ☑ Recovery point / recovery time expectations stated: RPO `2026-08-27T21:29:07Z`;
   measured **restore+verify** window 962s — **not** the runbook's Steps 6–8 RTO, and not a
   recovery capability; see section 2U for what that figure does and does not mean
-- ☑ Residual risk explicitly accepted: operator acceptance recorded 2026-08-27, scope-limited to
-  the currently empty staging project; see section 2V
+- ☐ Residual risk explicitly accepted: the six risks in 2V remain accepted, but recovery-envelope
+  items 1 and 7 were not named and remain open; acceptance is therefore incomplete
 
 Restore demonstration notes (what was restored, where, and what verified it):
 
@@ -1695,6 +1696,79 @@ whatever the target creates.
 No repair SQL has been written or applied, no dump has been edited, and the restored stack has
 not been mutated. Designing that mechanism is the next task and has **not** been started.
 
+*(Superseded 2026-08-28: the mechanism was subsequently designed, generated, reviewed and applied
+only to the disposable restored-local stack. See 2X. The historical finding and stop decision above
+remain accurate for the time they were recorded.)*
+
+### 2X. ACL recovery demonstrated on the disposable restored copy
+
+Recorded 2026-08-28. Source: the refreshed 544-row staging capture produced by the amended query
+with SHA-256 `0a83294ad9abbdf37cd7ac49e306f4696d9eb9a0c132708e1545f651e0e669d6`.
+The owner-only source CSV remains outside the repository and has SHA-256
+`7c3164fda5ed8e534a2a6e2cdd6b82386a1a9ab53f397c2b31fb917819ce829c`.
+
+The first replacement artifact stopped in preflight because it incorrectly required the hosted
+temporary role `cli_login_postgres` on the restored copy. Exit status was 3. No reset began, and
+read-only captures immediately before and after were byte-identical. The role was not created and
+the attempt was not retried. That artifact is superseded and retained with a `DO NOT APPLY` banner.
+
+The corrected `_r2` artifact projects Section H to roles named by in-scope ACL, ownership and
+default-privilege facts plus their upward membership closure. The full forensic capture remains
+unchanged. Five downward-only hosted roles are recorded in the manifest rather than recreated:
+`cli_login_postgres`, `supabase_etl_admin`, `supabase_read_only_user`,
+`supabase_realtime_admin`, and `supabase_storage_admin`. The isolated harness passed 45/45 before
+execution; after the parity-contract correction described below it passed 47/47.
+
+#### Target confirmation and execution
+
+- Target container: `supabase_db_last_man_standing`, ID prefix `9f12b8b163ba`, healthy, PostgreSQL
+  image `17.6.1.165`.
+- Connection: inside that container over its Unix-domain socket; database `postgres`; current user
+  `supabase_admin`. No `PGHOST`, `PGSERVICE` or `DATABASE_URL` was set.
+- Repository: clean at commit `9067680`; nothing was pushed.
+- Immediate pre-run capture: 867 rows; SHA-256
+  `002be19fe706f0dd86414aa50ffcc243acabfe2bd48fccf2b928eed418e719eb`.
+- Artifact result: exit 0 and `COMMIT`.
+- Preflight: 6 operative roles, 71 objects, 327 source edges, 6 default groups.
+- In-transaction result: `reset complete`; `verify ok: 327 edges, 72 default rules, 5 approved
+  provenance residual`.
+
+No hosted database was an execution target. Staging was contacted only for the preceding read-only
+capture; production was not contacted. The backup artifacts and SQL dumps were not changed.
+
+#### Independent post-run verification
+
+The amended capture was run again read-only against the repaired local copy: 545 rows, SHA-256
+`7f4609e736c0c1ff5a3bcb3245c1fe216818430052f86d7414510a9ff0e9feaf`.
+The first parity-check invocation reported only three section-J schema identities: staging-only
+`supabase_migrations` and local-only `_realtime` / `supabase_functions`. All three are classified
+`PLATFORM-MANAGED`; `public` remains the sole in-scope schema. The recovery contract has always
+allowed this environment-specific platform set, so comparing those names was a checker defect,
+not an ACL failure.
+
+The checker now compares in-scope schema identities and classifications exactly, ignores only
+properly classified platform-managed identities, and refuses any `UNCLASSIFIED` schema. Its two new
+isolated assertions pass. Re-running it on the real captures reports:
+
+- `MISSING 0`
+- `EXTRA 0`
+- `RESIDUAL 0`
+
+The 322 target-only excess grants recorded in 2W are removed. Structure, data and effective ACL
+state now reproduce staging within the declared recovery scope. The **restore-demonstrated** gate
+row is therefore satisfied. This does not authorize migration or deployment, and it does not close
+the two acceptance gaps below.
+
+#### Gate after recovery
+
+Five of six rows are satisfied. The gate remains **`NOT READY`** solely because the operator's 2V
+acceptance did not explicitly cover:
+
+1. recovery-envelope item 1 — this is a logical backup, not point-in-time recovery; and
+2. recovery-envelope item 7 — role passwords are not captured or restored.
+
+The six risks already accepted in 2V remain accepted; they are not retracted or silently expanded.
+
 ## 3. Query 1 — phase presence + object inventory
 
 Paste result:
@@ -1960,7 +2034,7 @@ The migration plan may be prepared and reviewed while the gate is `NOT READY`. N
 function deployment, secret configuration, or cron change may begin until the gate is
 explicitly `READY` and the exact plan is separately approved.
 
-**Current state (2026-08-27):** the backup/restore gate is now `READY`, scope-limited to the
-empty staging project (section 2V). The first condition above is therefore met. **The second is
-not** — the exact plan has not been approved, so no migration, function deployment, secret
-configuration or cron change is yet authorized.
+**Current state (2026-08-28):** ACL recovery is demonstrated on the disposable restored-local
+copy (section 2X), but the backup/restore gate remains `NOT READY` because recovery-envelope items
+1 and 7 still need explicit acceptance. The exact migration plan is also not approved. Therefore
+no migration, function deployment, secret configuration or cron change is authorized.

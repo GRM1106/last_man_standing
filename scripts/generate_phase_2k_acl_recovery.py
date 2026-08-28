@@ -710,7 +710,7 @@ def main() -> int:
         f"artifact_label              {args.label or '(none)'}",
         f"capture_query               {args.capture_query.name}",
         f"capture_query_sha256        {capture_sha}",
-        f"status                      {'SUPERSEDED - ' + args.superseded if args.superseded else 'generated, review pending, NOT applied'}",
+        f"generation_status           {'SUPERSEDED - ' + args.superseded if args.superseded else 'generated; review pending and NOT applied at generation time'}",
         f"artifact_sha256             {artifact_sha}",
         "",
         "Source capture structure",

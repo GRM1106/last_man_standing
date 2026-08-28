@@ -11,6 +11,10 @@ Comparison rules, matching the recovery's own contract:
   * Sections G and H are excluded. G is an aggregate of the sections A-D edges
     the recovery replays individually, so it carries nothing those edges do not.
     H is role state, which the recovery verifies in preflight and never changes.
+  * Section J is compared for IN-SCOPE schema names and classifications only.
+    PLATFORM-MANAGED schema identities are environment-specific (hosted staging
+    and a local Supabase stack do not install the same platform schemas), while
+    any UNCLASSIFIED row is a hard refusal.
   * Every other row is compared on all fields EXCEPT acl_source, so a difference
     in provenance alone is not a difference in privilege.
   * The one approved residual: an object whose captured ACL is NULL may afterwards
@@ -38,6 +42,15 @@ def main() -> int:
         return 2
     src, aft = load(sys.argv[1]), load(sys.argv[2])
 
+    def unclassified(rows):
+        return [r for r in rows if r["section"].startswith("J.")
+                and r["acl_source"].startswith("UNCLASSIFIED")]
+
+    bad_scope = unclassified(src) + unclassified(aft)
+    if bad_scope:
+        print("REFUSED: UNCLASSIFIED schema present in parity input", file=sys.stderr)
+        return 2
+
     null_objs = {
         (r["object_kind"], r["object_identity"])
         for r in src
@@ -46,10 +59,16 @@ def main() -> int:
 
     def key(r):
         return (r["section"], r["object_kind"], r["object_identity"], r["owner"],
-                r["grantee"], r["grantor"], r["privilege_type"], r["is_grantable"])
+                r["grantee"], r["grantor"], r["privilege_type"], r["is_grantable"],
+                r["acl_source"] if r["section"].startswith("J.") else "")
 
     def keep(r):
-        return not r["section"].startswith(("G.", "H."))
+        if r["section"].startswith(("G.", "H.")):
+            return False
+        if r["section"].startswith("J.") and \
+                r["acl_source"].startswith("PLATFORM-MANAGED"):
+            return False
+        return True
 
     S = collections.Counter(key(r) for r in src if keep(r))
     A = collections.Counter(key(r) for r in aft if keep(r))

@@ -479,11 +479,11 @@ overstated it.
 | Item | State |
 |---|---|
 | Capture query | sections A–J, including relation-backed row types. Executed and byte-deterministic on the local stack, a synthetic container, an integrated synthetic database and the restored LMS stack. Sections C, E and I field-asserted; A, B, D, F–H, J structurally validated, J additionally proven to fail closed |
-| Output format | proposed, **awaiting review** |
-| Recovery algorithm | proven in isolated containers across all six supported classes — seven properties, one atomic transaction, plus an independent four-lens adversarial audit. **Generated as an executable artifact; not authorized to be applied** |
-| Recovery artifact | **SUPERSEDED pending regeneration; never applied anywhere.** `supabase/recovery/phase_2k_acl_recovery_staging_7c3164fd.sql`, generated from the staging capture and validated end-to-end in an isolated container. Never run against the restored LMS stack, staging or production |
+| Output format | validated on isolated fixtures, the restored LMS stack and the refreshed staging capture; raw CSVs remain owner-only outside the repository |
+| Recovery algorithm | proven in isolated containers across all six supported classes and applied successfully to the confirmed disposable restored-local copy; one atomic transaction, in-transaction verification, then independent capture parity |
+| Recovery artifact | `_r2` applied **only** to `supabase_db_last_man_standing`: exit 0, `COMMIT`, 327-edge / 72-default-rule verification, then independent 0-missing / 0-extra parity. Earlier artifacts are superseded. Never run against staging or production |
 | Source capture | staging `evhiixndiuwwodsouyhf` captured manually by the operator 2026-08-28, 544 rows, verified by SHA-256; compared against the restored target and found sufficient for the validated algorithm. Raw CSVs are held outside the repository and are not committed |
-| Gate | `NOT READY` — unchanged by this note |
+| Gate | `NOT READY` — restore demonstration is now satisfied, but recovery-envelope items 1 and 7 still require explicit operator acceptance |
 
 ## Redesign experiments — 2026-08-28, isolated container only
 
@@ -1591,9 +1591,10 @@ This procedure replaces the earlier note that the operator "must confirm the tar
 |---|---|
 | Fresh source capture `phase_2k_acl_capture_staging_2026-08-28_v2.csv` | **CAPTURED AND VERIFIED.** The amended query (`0a83294ad9abbdf37cd7ac49e306f4696d9eb9a0c132708e1545f651e0e669d6`) was run once against operator-confirmed staging `evhiixndiuwwodsouyhf`; it returned 544 rows. The owner-only CSV remains outside the repository and has SHA-256 `7c3164fda5ed8e534a2a6e2cdd6b82386a1a9ab53f397c2b31fb917819ce829c`. Its byte identity with the earlier CSV shows that the amended domain-over-array coverage found no additional staging rows; it does not make the earlier query version current. |
 | Replacement artifact `phase_2k_acl_recovery_staging_7c3164fd_q0a83294a.sql` | **SUPERSEDED AFTER A SAFE PREFLIGHT REFUSAL — DO NOT APPLY.** Its first restored-local invocation exited before reset because it required the hosted temporary role `cli_login_postgres`. A capture immediately before and after the refusal was byte-identical, proving no mutation. Artifact SHA-256 before supersession: `38fd14377587f245067c242ecc687332c13bbb93ad623c65a5ed1d7ad2df6ac5`. |
-| Replacement manifest | to be marked superseded with that artifact; its prior `review pending, NOT applied` status is no longer current |
+| Replacement manifest | marked `SUPERSEDED - local preflight required hosted temporary role`; its prior `review pending, NOT applied` status is historical |
+| Corrected `_r2` artifact | **APPLIED SUCCESSFULLY TO THE DISPOSABLE RESTORED-LOCAL COPY ONLY.** Exit 0 and `COMMIT`; in-transaction verification found 327 edges, 72 default rules and 5 approved provenance residuals. Independent post-run parity found 0 missing, 0 extra and 0 residual effective-security facts. Never applied to staging or production. |
 | Superseded artifact and manifest without `_q0a83294a` | **SUPERSEDED — DO NOT APPLY.** Retained for review history only. |
-| Next step | regenerate with the access-relevant role-context projection below, review, then validate only against the disposable restored-local target. No hosted database is an authorized target. |
+| Next step | record and review the successful local evidence, then obtain explicit operator acceptance or rejection of recovery-envelope items 1 and 7. No hosted database is an authorized recovery target. |
 
 ### Restored-local preflight finding: hosted role context must be projected
 

@@ -6,14 +6,14 @@ source capture must reproduce the artifact SHA-256 exactly.
 source_capture              phase_2k_acl_capture_staging_2026-08-28_v2.csv
 source_capture_sha256       7c3164fda5ed8e534a2a6e2cdd6b82386a1a9ab53f397c2b31fb917819ce829c
 generator                   scripts/generate_phase_2k_acl_recovery.py
-generator_sha256            c30ee7c0ad65c7effdfba3303e23c773bd5a327b8b596c210f916ac393f3a134
+generator_sha256            5b6ae0d434abaf7c5f1691e78c4743451a757d50b7fe3db77415ff599493bcc9
 generator_template          scripts/phase_2k_acl_recovery_template.sql
 generator_template_sha256   3f76b4778f6be595f53c3c90233e783bd0bd74e465b4489a5c1dceb8309497d7
 artifact                    phase_2k_acl_recovery_staging_7c3164fd_q0a83294a_r2.sql
 artifact_label              staging evhiixndiuwwodsouyhf restored-local role projection r2
 capture_query               phase_2k_acl_capture.sql
 capture_query_sha256        0a83294ad9abbdf37cd7ac49e306f4696d9eb9a0c132708e1545f651e0e669d6
-status                      generated, review pending, NOT applied
+generation_status           generated; review pending and NOT applied at generation time
 artifact_sha256             2a36b3a8a9eb4aa5d9b1c6c9dff4d1736bacd37b10b23e7f702e8cc73f89c57b
 
 Source capture structure

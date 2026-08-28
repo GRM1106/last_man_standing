@@ -321,6 +321,35 @@ assert_eq "no captured privilege fact missing after recovery"   "$(awk '/^MISSIN
 assert_eq "no unapproved privilege fact present after recovery" "$(awk '/^EXTRA/{print $2}'   "$WORK/parity.txt")" "0"
 grep '^  DIFF' "$WORK/parity.txt" | sed 's/^/      /' || true
 printf '  INFO  approved provenance residual rows: %s (NULL-captured objects only)\n' "$(awk '/^RESIDUAL/{print $2}' "$WORK/parity.txt")"
+
+# Platform schemas differ legitimately between hosted staging and a local
+# Supabase stack. Their identities are excluded, but IN-SCOPE classification
+# and the fail-closed UNCLASSIFIED rule remain part of parity.
+python3 - "$WORK/after.csv" "$WORK/platform-different.csv" <<'PY'
+import csv, sys
+rows = list(csv.reader(open(sys.argv[1], newline="")))
+for row in rows[1:]:
+    if row[0].startswith("J.") and row[8].startswith("PLATFORM-MANAGED"):
+        row[2] = "different_platform_schema"
+        break
+with open(sys.argv[2], "w", newline="") as f:
+    csv.writer(f).writerows(rows)
+PY
+if python3 "$REPO/scripts/p2k_parity_check.py" "$WORK/src.csv" "$WORK/platform-different.csv" >/dev/null 2>&1; then
+  ok "platform-managed schema identity differences are outside parity"
+else bad "platform-managed schema identity difference was treated as ACL drift"; fi
+
+python3 - "$WORK/after.csv" "$WORK/unclassified.csv" <<'PY'
+import csv, sys
+rows = list(csv.reader(open(sys.argv[1], newline="")))
+rows.append(["J. SCHEMA SCOPE","schema","unknown_schema","-","-","-","-","-","UNCLASSIFIED: recovery must FAIL CLOSED"])
+with open(sys.argv[2], "w", newline="") as f:
+    csv.writer(f).writerows(rows)
+PY
+if python3 "$REPO/scripts/p2k_parity_check.py" "$WORK/src.csv" "$WORK/unclassified.csv" >/dev/null 2>&1; then
+  bad "UNCLASSIFIED schema passed parity"
+else ok "UNCLASSIFIED schema is refused by parity"; fi
+
 assert_eq "empty relation ACL restored"  "$(psqlv "select coalesce(relacl::text,'NULL') from pg_class where oid='public.x_empty_tbl'::regclass")" "{}"
 assert_eq "empty routine ACL restored"   "$(psqlv "select coalesce(proacl::text,'NULL') from pg_proc where proname='x_empty_fn'")" "{}"
 assert_eq "empty type ACL restored"      "$(psqlv "select coalesce(typacl::text,'NULL') from pg_type where oid='public.x_empty_ty'::regtype")" "{}"
