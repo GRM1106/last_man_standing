@@ -1589,10 +1589,11 @@ This procedure replaces the earlier note that the operator "must confirm the tar
 
 | Item | State |
 |---|---|
-| Source capture `7c3164fd…ce829c` | **SUPERSEDED — pending re-capture.** Taken with the pre-amendment capture query. Still valid as a record of staging's state at 2026-08-28; not valid as generator input |
-| Generated artifact | **SUPERSEDED — DO NOT APPLY.** Banner in the file, `status` in the manifest. Retained for review |
-| Manifest | superseded with the artifact; now also records the capture-query hash and label |
-| Next step | operator approval of the amended capture query, then a fresh staging capture, then regeneration. **Not yet.** |
+| Fresh source capture `phase_2k_acl_capture_staging_2026-08-28_v2.csv` | **CAPTURED AND VERIFIED.** The amended query (`0a83294ad9abbdf37cd7ac49e306f4696d9eb9a0c132708e1545f651e0e669d6`) was run once against operator-confirmed staging `evhiixndiuwwodsouyhf`; it returned 544 rows. The owner-only CSV remains outside the repository and has SHA-256 `7c3164fda5ed8e534a2a6e2cdd6b82386a1a9ab53f397c2b31fb917819ce829c`. Its byte identity with the earlier CSV shows that the amended domain-over-array coverage found no additional staging rows; it does not make the earlier query version current. |
+| Replacement artifact `phase_2k_acl_recovery_staging_7c3164fd_q0a83294a.sql` | **GENERATED, REVIEW PENDING, NOT APPLIED.** Deterministic regeneration reproduced the artifact and manifest byte-for-byte. Artifact SHA-256: `38fd14377587f245067c242ecc687332c13bbb93ad623c65a5ed1d7ad2df6ac5`. |
+| Replacement manifest | pins the full source-capture, capture-query, generator, template, and artifact hashes; status is `generated, review pending, NOT applied` |
+| Superseded artifact and manifest without `_q0a83294a` | **SUPERSEDED — DO NOT APPLY.** Retained for review history only. |
+| Next step | review and validate the replacement artifact against the disposable restored-local target under the target-confirmation procedure above. No hosted database is an authorized target. |
 
 ## Audit corrections — 2026-08-28
 
