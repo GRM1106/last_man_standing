@@ -2019,6 +2019,7 @@ Never edit an already-applied migration and never skip a dependency.
 10. 20260824000200_lms_phase_2i_automation.sql
 11. 20260824000300_lms_phase_2j_scheduler_readiness.sql
 12. 20260824000400_lms_phase_2k_legacy_acl_hardening.sql
+13. 20260824000500_lms_phase_2k_remove_orphan_rls_auto_enable.sql
 
 This is a draft catch-up sequence only. The unapplied migrations for 2B, 2C, 2E, 2F,
 2G, 2H, 2I, and 2J have been defensively amended in the local working tree: each of the
@@ -2153,6 +2154,9 @@ The outstanding function-by-function RPC-review item is therefore closed. This f
 not approve the migration sequence and does not change the separate legacy table-ACL or
 `rls_auto_enable()` decisions.
 
+> **Superseded 2026-08-28:** the two separate decisions named above were subsequently completed
+> and locally validated in sections 10 and 11. Migration approval remains separate.
+
 ## 10. Legacy table-ACL hardening design and local validation
 
 Recorded 2026-08-28 under the operator-approved scope: design explicit corrective revocations
@@ -2207,3 +2211,60 @@ The ten-relation corrective design is **complete and locally validated**. Remote
 application remains part of the separately reviewed exact migration plan. The remaining
 discovery decision is treatment of `rls_auto_enable()`; completing it still will not itself
 authorize migrations.
+
+> **Superseded 2026-08-28:** the `rls_auto_enable()` decision named above is complete and
+> locally validated in section 11. Migration approval remains separate.
+
+## 11. Orphaned `rls_auto_enable()` review and removal design
+
+Recorded 2026-08-28 under the operator-approved read-only review and subsequent approval to
+design removal with fail-closed dependency checks and local testing.
+
+### Finding
+
+`public.rls_auto_enable()` is the function from Supabase's optional auto-enable-RLS example,
+not unexplained platform internals. The documented feature requires a separately registered
+`ensure_rls` event trigger. The staging backup contains the function but no `CREATE EVENT
+TRIGGER` statement, and the restored catalogue likewise contains zero event triggers pointing
+to it. The function is therefore orphaned and inactive.
+
+Read-only catalogue inspection established:
+
+- owner `postgres`, `SECURITY DEFINER`, return type `event_trigger`;
+- fixed `search_path=pg_catalog` and default-derived `PUBLIC EXECUTE`;
+- no extension ownership, event-trigger registration or dependent object;
+- no repository migration intentionally creates it; and
+- it is not an ordinary PostgREST RPC because of its event-trigger return type.
+
+The source catches every `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` failure and logs it rather
+than failing the creating DDL. It is therefore optional defence in depth, not a fail-closed RLS
+guarantee. This repository already enables RLS explicitly in reviewed table migrations.
+
+### Selected correction
+
+Migration `20260824000500_lms_phase_2k_remove_orphan_rls_auto_enable.sql` removes the inactive
+function instead of activating new database-wide DDL behaviour. Before removal it requires the
+known owner, security mode, return type, fixed search path and characteristic source operations.
+It refuses if an event trigger or any other object depends on the function. Absence is the
+desired state, so a subsequent run is a no-op; the transaction verifies absence before commit.
+
+### Disposable restored-copy test
+
+| Check | Result |
+|---|---|
+| Function before | present |
+| Registered event triggers before | 0 |
+| First application | exit `0`, committed, empty stderr |
+| Function after | absent |
+| Second application | exit `0`, empty stderr; absence preserved |
+
+The test ran only on `supabase_db_last_man_standing`, which was already intentionally modified
+by the locally tested legacy ACL hardening. Backup artifacts were unchanged. No staging or
+production contact occurred.
+
+### Decision state
+
+The `rls_auto_enable()` drift decision is **complete and locally validated**. Together with
+sections 9 and 10, all three discovery items that remained after the backup/restore gate are now
+resolved at design/local-test level. The exact catch-up sequence still requires separate review
+and explicit approval before any staging application; production remains out of scope.
