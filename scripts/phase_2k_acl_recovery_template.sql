@@ -130,9 +130,12 @@ create temp table _p2k_src_role (rolname text not null) on commit drop;
 
 @@ROLE_VALUES@@
 
--- Section H. The artifact never mutates roles, but role membership decides the
--- real reach of every grant, so it must refuse to run against a role graph that
--- differs from the captured one.
+-- Projected Section H. The artifact never mutates roles, but role membership decides the
+-- real reach of grants. The generator starts with every role named by an in-scope
+-- ACL, owner or default rule and follows membership upward (member -> group),
+-- retaining membership grantors. Downward-only hosted-platform members remain in
+-- the forensic capture but are deliberately not recreated or required here.
+-- It refuses when this projected role graph differs from the captured one.
 create temp table _p2k_src_roleattr (
   rolname text not null, attributes text not null
 ) on commit drop;

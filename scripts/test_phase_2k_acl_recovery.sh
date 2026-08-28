@@ -78,12 +78,13 @@ say "building the fixture: every supported class and ACL state"
 psqlq -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
 begin;
 do $$ declare r text; begin
-  foreach r in array array['own_r','ra','rb','rc','third','sg','colg','grp','memb','defo_a','defo_b']
+  foreach r in array array['own_r','ra','rb','rc','third','sg','colg','grp','memb','defo_a','defo_b','platform_temp']
   loop if not exists (select 1 from pg_roles where rolname=r) then execute format('create role %I',r); end if; end loop;
 end $$;
 grant create, usage on schema public to own_r, defo_a, defo_b;
 grant usage on schema public to ra, rb, rc, third, sg, colg, grp, memb;
 grant grp to memb with admin option, inherit true, set true;   -- role graph edge
+grant own_r to platform_temp with inherit false, set true;     -- downward-only platform-style member
 
 create foreign data wrapper p2k_fdw;
 create server p2k_srv foreign data wrapper p2k_fdw;
@@ -176,11 +177,18 @@ assert_eq "three empty-ACL objects captured" \
   "$(awk -F, '$1 ~ /^E\./ && $9 ~ /acl empty/' "$WORK/src.csv" | wc -l | tr -d ' ')" "3"
 assert_eq "role membership edge captured via the recursive closure" \
   "$(awk -F, '$1 ~ /^H\./ && $2=="membership" && $3=="memb -> grp"' "$WORK/src.csv" | wc -l | tr -d ' ')" "1"
+assert_eq "downward-only role remains in the forensic capture" \
+  "$(awk -F, '$1 ~ /^H\./ && $2=="role" && $3=="platform_temp" && $7=="attributes"' "$WORK/src.csv" | wc -l | tr -d ' ')" "1"
 
 say "generating the artifact"
 gen "$WORK/src.csv" "$WORK/art.sql" "$WORK/man.txt" >/dev/null
 gen "$WORK/src.csv" "$WORK/art2.sql" "$WORK/man2.txt" >/dev/null
 if cmp -s "$WORK/art.sql" "$WORK/art2.sql"; then ok "generator is deterministic"; else bad "generator not deterministic"; fi
+if ! grep -q "platform_temp" "$WORK/art.sql" && grep -q "platform_temp" "$WORK/man.txt"; then
+  ok "downward-only platform role is excluded from execution and recorded in manifest"
+else
+  bad "downward-only platform role projection is incorrect"
+fi
 
 # --------------------------------------------------------------------------
 say "generator refusal paths"

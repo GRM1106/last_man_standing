@@ -18,21 +18,10 @@
 --  ###   before you run this.                                             ###
 -- ---------------------------------------------------------------------------
 --
--- ###########################################################################
--- ###                                                                     ###
--- ###   S U P E R S E D E D   -   D O   N O T   A P P L Y                 ###
--- ###                                                                     ###
--- ###   local preflight required hosted temporary role                    ###
--- ###                                                                     ###
--- ###   Regenerate from a freshly approved capture before any use. This   ###
--- ###   file is retained for review only.                                 ###
--- ###                                                                     ###
--- ###########################################################################
---
 -- Source capture:         phase_2k_acl_capture_staging_2026-08-28_v2.csv
 -- Source capture SHA-256: 7c3164fda5ed8e534a2a6e2cdd6b82386a1a9ab53f397c2b31fb917819ce829c
 -- Capture query SHA-256:  0a83294ad9abbdf37cd7ac49e306f4696d9eb9a0c132708e1545f651e0e669d6
--- Label:                  staging evhiixndiuwwodsouyhf capture 2026-08-28 revised query 0a83294a
+-- Label:                  staging evhiixndiuwwodsouyhf restored-local role projection r2
 --
 -- The capture-query hash pins the version of
 -- supabase/discovery/phase_2k_acl_capture.sql that this artifact's contract
@@ -62,8 +51,9 @@
 --     source_default_groups      6
 --     source_default_edges       72
 --     source_roles               6
---     source_role_closure        20
---     source_role_memberships    25
+--     source_role_closure        15
+--     source_role_memberships    15
+--     source_role_context_excluded 5
 --     replay_grants              327
 --     approved_null_acl_objects  18
 --
@@ -667,9 +657,12 @@ values
   ('supabase_admin');
 
 
--- Section H. The artifact never mutates roles, but role membership decides the
--- real reach of every grant, so it must refuse to run against a role graph that
--- differs from the captured one.
+-- Projected Section H. The artifact never mutates roles, but role membership decides the
+-- real reach of grants. The generator starts with every role named by an in-scope
+-- ACL, owner or default rule and follows membership upward (member -> group),
+-- retaining membership grantors. Downward-only hosted-platform members remain in
+-- the forensic capture but are deliberately not recreated or required here.
+-- It refuses when this projected role graph differs from the captured one.
 create temp table _p2k_src_roleattr (
   rolname text not null, attributes text not null
 ) on commit drop;
@@ -680,7 +673,6 @@ values
   ('anon', 'superuser=false inherit=true createrole=false createdb=false login=false replication=false bypassrls=false'),
   ('authenticated', 'superuser=false inherit=true createrole=false createdb=false login=false replication=false bypassrls=false'),
   ('authenticator', 'superuser=false inherit=false createrole=false createdb=false login=true replication=false bypassrls=false'),
-  ('cli_login_postgres', 'superuser=false inherit=false createrole=false createdb=false login=true replication=false bypassrls=false'),
   ('pg_create_subscription', 'superuser=false inherit=true createrole=false createdb=false login=false replication=false bypassrls=false'),
   ('pg_database_owner', 'superuser=false inherit=true createrole=false createdb=false login=false replication=false bypassrls=false'),
   ('pg_monitor', 'superuser=false inherit=true createrole=false createdb=false login=false replication=false bypassrls=false'),
@@ -692,11 +684,7 @@ values
   ('postgres', 'superuser=false inherit=true createrole=true createdb=true login=true replication=true bypassrls=true'),
   ('service_role', 'superuser=false inherit=true createrole=false createdb=false login=false replication=false bypassrls=true'),
   ('supabase_admin', 'superuser=true inherit=true createrole=true createdb=true login=true replication=true bypassrls=true'),
-  ('supabase_etl_admin', 'superuser=false inherit=true createrole=false createdb=false login=true replication=true bypassrls=true'),
-  ('supabase_privileged_role', 'superuser=false inherit=true createrole=false createdb=false login=false replication=false bypassrls=false'),
-  ('supabase_read_only_user', 'superuser=false inherit=true createrole=false createdb=false login=true replication=false bypassrls=true'),
-  ('supabase_realtime_admin', 'superuser=false inherit=false createrole=false createdb=false login=false replication=false bypassrls=false'),
-  ('supabase_storage_admin', 'superuser=false inherit=false createrole=true createdb=false login=true replication=false bypassrls=false');
+  ('supabase_privileged_role', 'superuser=false inherit=true createrole=false createdb=false login=false replication=false bypassrls=false');
 
 
 create temp table _p2k_src_rolemember (
@@ -711,7 +699,6 @@ values
   ('authenticator', 'anon', 'supabase_admin', false, false, true),
   ('authenticator', 'authenticated', 'supabase_admin', false, false, true),
   ('authenticator', 'service_role', 'supabase_admin', false, false, true),
-  ('cli_login_postgres', 'postgres', 'supabase_admin', false, false, true),
   ('pg_monitor', 'pg_read_all_settings', 'supabase_admin', false, true, true),
   ('pg_monitor', 'pg_read_all_stats', 'supabase_admin', false, true, true),
   ('pg_monitor', 'pg_stat_scan_tables', 'supabase_admin', false, true, true),
@@ -723,16 +710,7 @@ values
   ('postgres', 'pg_read_all_data', 'supabase_admin', true, true, true),
   ('postgres', 'pg_signal_backend', 'supabase_admin', true, true, true),
   ('postgres', 'service_role', 'supabase_admin', true, true, true),
-  ('postgres', 'supabase_privileged_role', 'supabase_admin', false, true, true),
-  ('supabase_etl_admin', 'pg_monitor', 'supabase_admin', false, true, true),
-  ('supabase_etl_admin', 'pg_read_all_data', 'supabase_admin', false, true, true),
-  ('supabase_etl_admin', 'supabase_privileged_role', 'supabase_admin', false, true, true),
-  ('supabase_read_only_user', 'pg_monitor', 'supabase_admin', false, true, true),
-  ('supabase_read_only_user', 'pg_read_all_data', 'supabase_admin', false, true, true),
-  ('supabase_realtime_admin', 'anon', 'supabase_admin', false, false, true),
-  ('supabase_realtime_admin', 'authenticated', 'supabase_admin', false, false, true),
-  ('supabase_realtime_admin', 'service_role', 'supabase_admin', false, false, true),
-  ('supabase_storage_admin', 'authenticator', 'supabase_admin', false, false, true);
+  ('postgres', 'supabase_privileged_role', 'supabase_admin', false, true, true);
 
 
 -- ============================================================================
@@ -911,12 +889,12 @@ begin
     raise exception 'PREFLIGHT: staged roles = %, expected %', n, 6;
   end if;
   select count(*) into n from _p2k_src_roleattr;
-  if n <> 20 then
-    raise exception 'PREFLIGHT: staged role closure = %, expected %', n, 20;
+  if n <> 15 then
+    raise exception 'PREFLIGHT: staged role closure = %, expected %', n, 15;
   end if;
   select count(*) into n from _p2k_src_rolemember;
-  if n <> 25 then
-    raise exception 'PREFLIGHT: staged memberships = %, expected %', n, 25;
+  if n <> 15 then
+    raise exception 'PREFLIGHT: staged memberships = %, expected %', n, 15;
   end if;
 
   -- 3. every role the recovery names must exist

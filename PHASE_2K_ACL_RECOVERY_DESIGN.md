@@ -1590,10 +1590,41 @@ This procedure replaces the earlier note that the operator "must confirm the tar
 | Item | State |
 |---|---|
 | Fresh source capture `phase_2k_acl_capture_staging_2026-08-28_v2.csv` | **CAPTURED AND VERIFIED.** The amended query (`0a83294ad9abbdf37cd7ac49e306f4696d9eb9a0c132708e1545f651e0e669d6`) was run once against operator-confirmed staging `evhiixndiuwwodsouyhf`; it returned 544 rows. The owner-only CSV remains outside the repository and has SHA-256 `7c3164fda5ed8e534a2a6e2cdd6b82386a1a9ab53f397c2b31fb917819ce829c`. Its byte identity with the earlier CSV shows that the amended domain-over-array coverage found no additional staging rows; it does not make the earlier query version current. |
-| Replacement artifact `phase_2k_acl_recovery_staging_7c3164fd_q0a83294a.sql` | **GENERATED, REVIEW PENDING, NOT APPLIED.** Deterministic regeneration reproduced the artifact and manifest byte-for-byte. Artifact SHA-256: `38fd14377587f245067c242ecc687332c13bbb93ad623c65a5ed1d7ad2df6ac5`. |
-| Replacement manifest | pins the full source-capture, capture-query, generator, template, and artifact hashes; status is `generated, review pending, NOT applied` |
+| Replacement artifact `phase_2k_acl_recovery_staging_7c3164fd_q0a83294a.sql` | **SUPERSEDED AFTER A SAFE PREFLIGHT REFUSAL — DO NOT APPLY.** Its first restored-local invocation exited before reset because it required the hosted temporary role `cli_login_postgres`. A capture immediately before and after the refusal was byte-identical, proving no mutation. Artifact SHA-256 before supersession: `38fd14377587f245067c242ecc687332c13bbb93ad623c65a5ed1d7ad2df6ac5`. |
+| Replacement manifest | to be marked superseded with that artifact; its prior `review pending, NOT applied` status is no longer current |
 | Superseded artifact and manifest without `_q0a83294a` | **SUPERSEDED — DO NOT APPLY.** Retained for review history only. |
-| Next step | review and validate the replacement artifact against the disposable restored-local target under the target-confirmation procedure above. No hosted database is an authorized target. |
+| Next step | regenerate with the access-relevant role-context projection below, review, then validate only against the disposable restored-local target. No hosted database is an authorized target. |
+
+### Restored-local preflight finding: hosted role context must be projected
+
+The first invocation of the `_q0a83294a` artifact against the confirmed local container
+`supabase_db_last_man_standing`, over a Unix-domain socket as `supabase_admin`, stopped in preflight:
+the staging capture contains `cli_login_postgres`, while the restored copy does not. The role is a
+temporary hosted Supabase CLI login, has no in-scope ACL edge, ownership or default-privilege rule,
+and was already classified above as not required for recovery. Creating it locally would reproduce
+hosted platform access state rather than application database security. The refusal occurred before
+the reset; read-only captures taken immediately before and after were byte-identical (867 rows).
+
+The capture remains deliberately forensic and follows membership in both directions. The generator
+now projects Section H to the **access-relevant upward closure**:
+
+1. Seed every non-`PUBLIC` role named by an in-scope ACL edge, object owner, default-rule owner or
+   default-rule grantee.
+2. Follow membership only from member to granted role, because those groups can add access to a
+   seeded principal.
+3. Include each retained membership's grantor, then repeat upward closure to a fixed point.
+4. Verify attributes for every projected role and every membership whose two endpoints are in the
+   projection, in both directions. Roles and memberships are still never mutated.
+5. Record every captured but downward-only role in the manifest. Exclusion is fact-driven, not a
+   role-name allowlist: if any such role is named by a future in-scope fact, it becomes a seed and
+   cannot be excluded.
+
+For the real 544-row staging capture this produces 15 projected roles and 15 membership edges, and
+records five downward-only hosted roles: `cli_login_postgres`, `supabase_etl_admin`,
+`supabase_read_only_user`, `supabase_realtime_admin`, and `supabase_storage_admin`. The six roles
+directly named by ACL/ownership/default facts remain unchanged. This narrows the role-context claim:
+recovery proves effective access for the in-scope database principals and their upward groups; it
+does not attempt to reproduce which hosted control-plane principals may assume those roles.
 
 ## Audit corrections — 2026-08-28
 

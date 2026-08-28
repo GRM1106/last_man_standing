@@ -425,6 +425,51 @@ def build_role_context(rows: list[dict]) -> tuple[list[tuple], list[tuple]]:
     return sorted(attrs), sorted(members)
 
 
+def project_role_context(attrs: list[tuple], members: list[tuple],
+                         roots: list[str]) -> tuple[list[tuple], list[tuple], list[str]]:
+    """Project the forensic role graph to the access-relevant upward closure.
+
+    The capture follows memberships in both directions. Recovery starts at every
+    role named by an in-scope ACL, owner or default rule and follows membership
+    member -> granted role, because those groups can change a root's access.
+    Membership grantors are retained for revocability provenance.
+
+    Downward-only members (for example Supabase's temporary CLI login member of
+    postgres) are hosted-platform access state and must not be recreated on a
+    disposable restore. This is fact-driven, not a name allowlist: naming such a
+    role in any in-scope fact makes it a root and therefore non-excludable.
+    """
+    attr_by_name: dict[str, tuple] = {}
+    for row in attrs:
+        if row[0] in attr_by_name:
+            raise Refused(f"duplicate section H attributes for role {row[0]!r}")
+        attr_by_name[row[0]] = row
+
+    closure = set(roots)
+    while True:
+        expanded = set(closure)
+        retained = [m for m in members if m[0] in closure]
+        expanded.update(m[1] for m in retained)
+        expanded.update(m[2] for m in retained)
+        if expanded == closure:
+            break
+        closure = expanded
+
+    missing = sorted(closure - set(attr_by_name))
+    if missing:
+        raise Refused(
+            f"{len(missing)} access-relevant role(s) are absent from section H; "
+            "the capture is internally inconsistent"
+        )
+
+    projected_attrs = sorted(attr_by_name[name] for name in closure)
+    projected_members = sorted(
+        m for m in members if m[0] in closure and m[1] in closure
+    )
+    excluded = sorted(set(attr_by_name) - closure)
+    return projected_attrs, projected_members, excluded
+
+
 def build_scope(rows: list[dict]) -> list[tuple]:
     return sorted(
         (r["object_identity"], r["acl_source"])
@@ -477,8 +522,10 @@ def emit(rows, source_path: Path, source_sha: str, template: str):
     edges = build_edges(rows, owner_index)
     def_groups, def_edges = build_defaults(rows)
     scope = build_scope(rows)
-    role_attrs, role_members = build_role_context(rows)
     roles = collect_roles(edges, owners, def_edges, def_groups)
+    all_role_attrs, all_role_members = build_role_context(rows)
+    role_attrs, role_members, excluded_roles = project_role_context(
+        all_role_attrs, all_role_members, roles)
     closure = {a[0] for a in role_attrs}
     missing = sorted(set(roles) - closure)
     if missing:
@@ -503,6 +550,7 @@ def emit(rows, source_path: Path, source_sha: str, template: str):
         "source_roles": len(roles),
         "source_role_closure": len(role_attrs),
         "source_role_memberships": len(role_members),
+        "source_role_context_excluded": len(excluded_roles),
         "replay_grants": len(edges),
         "approved_null_acl_objects": len(residual),
     }
@@ -576,7 +624,7 @@ def emit(rows, source_path: Path, source_sha: str, template: str):
     out = out.replace("@@EXPECT_RESIDUAL@@", str(len(residual)))
     for token, block in blocks.items():
         out = out.replace(token, block)
-    return out, workload, section_counts, residual
+    return out, workload, section_counts, residual, excluded_roles
 
 
 TEMPLATE_PATH = Path(__file__).with_name("phase_2k_acl_recovery_template.sql")
@@ -614,7 +662,7 @@ def main() -> int:
     try:
         template = TEMPLATE_PATH.read_text(encoding="utf-8")
         rows = load_capture(args.source, args.source_sha256)
-        sql, workload, sections, residual = emit(
+        sql, workload, sections, residual, excluded_roles = emit(
             rows, args.source, args.source_sha256.lower(), template)
     except Refused as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
@@ -680,10 +728,22 @@ def main() -> int:
         "  artifact's in-transaction verification will accept WITHIN ITS SCOPE.",
         "",
         "  That scope is: ACL edges in schema public, the in-scope default-privilege",
-        "  rules, and object ownership. Verification does NOT read role attributes,",
-        "  role membership, inheritance, RLS state or policies, or platform-schema",
-        "  ACLs. A difference in any of those passes silently and must be verified",
-        "  separately.",
+        "  rules, object ownership, and the access-relevant upward role closure",
+        "  rooted at every role those facts name. Verification does NOT cover",
+        "  downward-only hosted-platform members, RLS state or policies, or",
+        "  platform-schema ACLs; those remain separate scope decisions.",
+        "",
+        "Role-context projection",
+        "  The source capture retains the full bidirectional role closure. The",
+        "  artifact verifies roots named by in-scope ACL/ownership/default facts,",
+        "  their granted roles (member -> group), membership grantors, and edges",
+        "  wholly inside that projected set. Downward-only roles are not recreated",
+        "  on a restored copy. If an excluded role is named by any in-scope fact in",
+        "  a future capture, it becomes a root and exclusion is impossible.",
+        f"  excluded_downward_only_roles {len(excluded_roles)}",
+    ]
+    lines += [f"    {role}" for role in excluded_roles]
+    lines += [
         "",
         "  This is the PERMITTED set, derived from the source capture alone. How many",
         "  of them actually drift depends on the target: an object that is NULL on",
