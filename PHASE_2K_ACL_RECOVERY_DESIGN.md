@@ -483,7 +483,7 @@ overstated it.
 | Recovery algorithm | proven in isolated containers across all six supported classes and applied successfully to the confirmed disposable restored-local copy; one atomic transaction, in-transaction verification, then independent capture parity |
 | Recovery artifact | `_r2` applied **only** to `supabase_db_last_man_standing`: exit 0, `COMMIT`, 327-edge / 72-default-rule verification, then independent 0-missing / 0-extra parity. Earlier artifacts are superseded. Never run against staging or production |
 | Source capture | staging `evhiixndiuwwodsouyhf` captured manually by the operator 2026-08-28, 544 rows, verified by SHA-256; compared against the restored target and found sufficient for the validated algorithm. Raw CSVs are held outside the repository and are not committed |
-| Gate | `NOT READY` — restore demonstration is now satisfied, but recovery-envelope items 1 and 7 still require explicit operator acceptance |
+| Gate | **`READY`**, scope-limited to empty staging — restore demonstration is satisfied and the operator explicitly accepted recovery-envelope items 1 and 7 on 2026-08-28; no migration or deployment is authorized by this gate |
 
 ## Redesign experiments — 2026-08-28, isolated container only
 
@@ -1594,7 +1594,7 @@ This procedure replaces the earlier note that the operator "must confirm the tar
 | Replacement manifest | marked `SUPERSEDED - local preflight required hosted temporary role`; its prior `review pending, NOT applied` status is historical |
 | Corrected `_r2` artifact | **APPLIED SUCCESSFULLY TO THE DISPOSABLE RESTORED-LOCAL COPY ONLY.** Exit 0 and `COMMIT`; in-transaction verification found 327 edges, 72 default rules and 5 approved provenance residuals. Independent post-run parity found 0 missing, 0 extra and 0 residual effective-security facts. Never applied to staging or production. |
 | Superseded artifact and manifest without `_q0a83294a` | **SUPERSEDED — DO NOT APPLY.** Retained for review history only. |
-| Next step | record and review the successful local evidence, then obtain explicit operator acceptance or rejection of recovery-envelope items 1 and 7. No hosted database is an authorized recovery target. |
+| Next step | separately review and approve the exact migration plan. No hosted database is an authorized ACL-recovery target, and this gate does not authorize migration or deployment. |
 
 ### Restored-local preflight finding: hosted role context must be projected
 

@@ -20,11 +20,11 @@ explicitly `READY` **and** the exact plan is separately approved.
 
 | Gate | Status |
 |---|---|
-| BACKUP / RESTORE OPERATOR GATE | **`NOT READY`** — ACL recovery is now demonstrated locally (2X), but envelope items 1 and 7 still require explicit acceptance |
+| BACKUP / RESTORE OPERATOR GATE | **`READY`** — scope-limited to empty staging; ACL recovery demonstrated in 2X and the final two limitations accepted in 2Y |
 
 Update only when every row below is satisfied. Any unchecked row keeps the gate `NOT READY`.
 
-> ## ⚠ `READY` REMAINS WITHDRAWN — ACL parity is fixed; residual acceptance is incomplete
+> ## ✅ `READY` — EMPTY STAGING ONLY
 >
 > The gate was moved to `READY` on 2026-08-27 and is **withdrawn** as of 2026-08-28. The
 > 148-vs-206 discrepancy has been **resolved and its cause is understood**: the entire 58-row
@@ -34,9 +34,10 @@ Update only when every row below is satisfied. Any unchecked row keeps the gate 
 > disposable local restore, committed atomically, and independently verified at 0 missing and 0
 > extra effective-security facts. The restore-demonstrated row is now satisfied.
 >
-> The gate nevertheless remains `NOT READY`. The acceptance in 2V did not name recovery-envelope
-> item 1 (logical backup, not PITR) or item 7 (role passwords are not captured). Those two material
-> limits require an explicit operator judgement; successful ACL recovery cannot accept them.
+> On 2026-08-28 the operator explicitly accepted recovery-envelope item 1 (logical backup, not
+> PITR) and item 7 (role passwords are not captured and will be re-established separately if
+> recovery requires them), both for empty staging only. See 2Y. All six gate rows are now satisfied.
+> This is not production readiness and does not authorize the migration plan or any deployment.
 
 - ☑ Exact target project named: `evhiixndiuwwodsouyhf` (`last-man-standing-staging`)
 - ☑ Backup mechanism identified: pinned Supabase CLI `2.116.0` logical dump
@@ -48,8 +49,8 @@ Update only when every row below is satisfied. Any unchecked row keeps the gate 
 - ☑ Recovery point / recovery time expectations stated: RPO `2026-08-27T21:29:07Z`;
   measured **restore+verify** window 962s — **not** the runbook's Steps 6–8 RTO, and not a
   recovery capability; see section 2U for what that figure does and does not mean
-- ☐ Residual risk explicitly accepted: the six risks in 2V remain accepted, but recovery-envelope
-  items 1 and 7 were not named and remain open; acceptance is therefore incomplete
+- ☑ Residual risk explicitly accepted: the six risks in 2V plus recovery-envelope items 1 and 7
+  were explicitly accepted for empty staging only; see section 2Y
 
 Restore demonstration notes (what was restored, where, and what verified it):
 
@@ -1769,6 +1770,36 @@ acceptance did not explicitly cover:
 
 The six risks already accepted in 2V remain accepted; they are not retracted or silently expanded.
 
+*(Superseded later on 2026-08-28: the operator explicitly accepted both remaining items in 2Y.
+This paragraph preserves the gate state immediately after technical recovery and before that
+operator decision.)*
+
+### 2Y. Final recovery-envelope acceptance — gate `READY`, empty staging only
+
+Recorded 2026-08-28 as operator attestation. After the successful restored-local ACL recovery and
+independent parity verification in 2X, the operator made these two explicit decisions:
+
+1. **Recovery-envelope item 1 accepted:** “I accept recovery-envelope item 1 for empty staging
+   only.” The accepted limitation is that this is a logical backup at RPO
+   `2026-08-27T21:29:07Z`, not point-in-time recovery; it cannot restore to an arbitrary later
+   moment and changes after that recovery point could be lost.
+2. **Recovery-envelope item 7 accepted:** “I accept recovery-envelope item 7 for empty staging
+   only; database role passwords will be re-established separately if recovery requires them.”
+   Role definitions are captured, but their passwords are not.
+
+These attestations complete the two gaps deliberately left open in 2V. Together with the six risks
+already accepted there, every recovery-envelope item is now explicitly covered and all six operator
+gate rows are satisfied.
+
+**BACKUP / RESTORE OPERATOR GATE: `READY`**, subject to all of these limits:
+
+- staging project `evhiixndiuwwodsouyhf` only;
+- only while staging remains empty and holds no material player data;
+- not production `enzdvsppduyqtpdeseyh`;
+- reassess after schema/tooling changes or before staging is populated; and
+- this gate clears only the backup/restore precondition. It does not approve the draft migration
+  sequence, Edge Functions, secrets, cron, automation flags, production deployment or the UI.
+
 ## 3. Query 1 — phase presence + object inventory
 
 Paste result:
@@ -2034,7 +2065,6 @@ The migration plan may be prepared and reviewed while the gate is `NOT READY`. N
 function deployment, secret configuration, or cron change may begin until the gate is
 explicitly `READY` and the exact plan is separately approved.
 
-**Current state (2026-08-28):** ACL recovery is demonstrated on the disposable restored-local
-copy (section 2X), but the backup/restore gate remains `NOT READY` because recovery-envelope items
-1 and 7 still need explicit acceptance. The exact migration plan is also not approved. Therefore
-no migration, function deployment, secret configuration or cron change is authorized.
+**Current state (2026-08-28):** the backup/restore gate is `READY`, limited to empty staging
+(sections 2X–2Y). The exact migration plan is still not approved. Therefore no migration, function
+deployment, secret configuration or cron change is authorized.

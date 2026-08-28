@@ -2,23 +2,24 @@
 
 Target: staging `evhiixndiuwwodsouyhf` (`last-man-standing-staging`) only.
 
-**This is a prepared runbook, not authorization.** Nothing here has been executed. No remote
-connection was made while preparing it. Do not run any step until the exact runbook is
-separately approved.
+**This runbook is evidence-backed procedure, not standing authorization.** Its backup and
+restored-local demonstration have been executed and recorded in `PHASE_2K_DISCOVERY_EVIDENCE.md`.
+That does not authorize a repeat, any hosted-database restore, migration, deployment or production
+action; each still requires its own explicit approval.
 
-**Gate status (as of 2026-08-28):** the BACKUP / RESTORE OPERATOR GATE is **`NOT READY`**. It was
-briefly `READY` on 2026-08-27 and has been **withdrawn**.
+**Gate status (as of 2026-08-28):** the BACKUP / RESTORE OPERATOR GATE is **`READY`**, strictly for
+staging `evhiixndiuwwodsouyhf` while it remains empty. It is not production readiness and expires
+when staging contains material data or the relevant schema, tooling or recovery assumptions change.
 
-Reason: the 148-vs-206 row discrepancy is now resolved, and the cause is an **ACL divergence**.
-Schema and data restore correctly, but the restored copy carries broader privileges than the
-source — 26 vs 18 table grants and 84 vs 34 routine grants. The dump's privilege statements are
-source-relative and do not revoke what a different target baseline grants by default. A restore
-that does not reproduce the source's security posture is not a demonstrated restore, so that gate
-row is unchecked. Recorded in `PHASE_2K_DISCOVERY_EVIDENCE.md` section 2W.
+The earlier ACL divergence is resolved by the explicit recovery artifact. On the confirmed
+disposable restored-local copy it removed 322 target-only excess grants, committed atomically, and
+independent capture parity reported 0 missing, 0 extra and 0 residual effective-security facts.
+Recorded in evidence section 2X.
 
-The cause is understood but **not fixed**; no repair has been designed or applied. Recovery-envelope
-items 1 and 7 also remain unnamed in the operator's acceptance. The next design task is an
-explicit, complete ACL recovery mechanism independent of target default privileges.
+The operator has now explicitly accepted all eight recovery-envelope limitations for empty staging,
+including item 1 (logical backup, not point-in-time recovery) and item 7 (role passwords are not
+captured and must be re-established separately if required). See evidence section 2Y. These
+acceptances do not generalise to populated staging or production.
 
 Workflow: **staging logical dump → local disposable restore → verification → retention.**
 
