@@ -33,11 +33,18 @@
 > grantor-scoped ACL graph exactly, repeatably, and with clean rollback. Blocker 1 stands
 > unchanged — `GRANT … GRANTED BY` remains unusable — but a working substitute was found.
 >
-> The blocker is retained because the tested algorithm is **incomplete**: it covers relation,
-> column and routine privileges only. **Schema privileges and default-privilege rules were
-> neither reset nor replayed**, and both are required. An algorithm that silently leaves the
-> target's own default-privilege rules in place would re-introduce excess on every object created
-> after recovery — the exact defect this work exists to fix.
+> **UPDATE 2026-08-28 (second round) — blocker NARROWED.** Schema privileges and
+> default-privilege rules have since been implemented and tested to the same standard (see
+> "Schema and default-privilege experiments"). All required cases passed: exact parity including
+> grantor, target-only excess removed, cycle broken, complete rollback, and probe objects created
+> after replay inheriting the intended privileges.
+>
+> The blocker now covers only **remaining scope gaps**, not a broken mechanism:
+> `pg_type.typacl` is still not captured (and the experiments proved types *do* receive default
+> privileges, so this is a real hole); system-column ACLs are excluded by assumption; non-public
+> schemas are out of scope; and the two halves of the algorithm — relation/column/routine, and
+> schema/default-privilege — have never been exercised together in a single run against one
+> database.
 >
 > **Consequence:** the *capture* format is sound and validated; the *recovery mechanism* is not.
 > Generating an executable artifact from this note would produce a repair that silently fails to
@@ -513,6 +520,83 @@ algorithm must not be used to generate a repair artifact.
 
 Also untested: `pg_type.typacl` (not captured at all), system-column ACLs, and any object class
 outside schema `public`.
+
+## Schema and default-privilege experiments — 2026-08-28, isolated container only
+
+Conducted in `pg17-schemadefacl` (disposable PostgreSQL 17.6, own volume, synthetic roles and
+objects). The LMS stack was never used or modified; container and volume were removed afterwards
+by name-guarded commands. **No LMS repair artifact was produced.**
+
+### Schema ACL — all eight cases passed
+
+Fixture on synthetic schema `s_test` owned by `schema_owner`, exercising `USAGE`/`CREATE`, direct
+owner grants, a third-party grantor, a three-level chain with grant options, a grantor cycle
+(`schema_owner ↔ role_x`), `PUBLIC`, and target-only excess injected after the snapshot.
+
+The relation algorithm transferred **unchanged in shape**: `SET LOCAL ROLE <grantor>` → `REVOKE
+… ON SCHEMA` → `RESET ROLE`, leaf-peeling, and no-progress detection breaking the cycle with
+`REVOKE GRANT OPTION FOR … ON SCHEMA … CASCADE`. Reset converged in 6 passes, replay in 2.
+
+| Check | Result |
+|---|---|
+| Parity including grantor | **13 live vs 13 source, 0 missing, 0 extra** |
+| Target-only excess removed | grants to `target_only`: **0** |
+| Cycle handled | cycle-breaker fired on `role_x`, then peeling completed |
+
+### Default-privilege rules — all thirteen cases passed
+
+Fixture covering schema-specific and global rules, two default-owning roles, `PUBLIC`, named
+roles and grant options, across future **tables, sequences, routines, types and schemas**.
+PostgreSQL 17 does support `ALTER DEFAULT PRIVILEGES … ON SCHEMAS` (global only, no `IN SCHEMA`).
+
+**Mechanism.** Reset and replay both use
+`ALTER DEFAULT PRIVILEGES FOR ROLE <defaclrole> [IN SCHEMA s] REVOKE|GRANT <priv> ON <objkw> …`
+executed under `SET LOCAL ROLE <defaclrole>`. Grantor preservation is simpler here than for
+relations: every `defaclacl` entry's grantor **is** the `defaclrole`, so acting as that role
+reproduces the grantor by construction. Object-type codes map `r→TABLES, S→SEQUENCES,
+f→FUNCTIONS, T→TYPES, n→SCHEMAS`; `n` rules cannot carry `IN SCHEMA`.
+
+| Check | Result |
+|---|---|
+| Parity including grantor | **10 live vs 10 source, 0 missing, 0 extra** |
+| Target-only rules removed | `defaclacl` entries for `target_only`: **0** |
+| Multiple default-owning roles | `defowner_a` and `defowner_b` both reproduced |
+
+### Probe objects created after replay
+
+Objects created by each default-owning role after the replay, to prove future objects actually
+inherit the intended privileges:
+
+| Probe | Expected | Result |
+|---|---|---|
+| table in `s_test` by `defowner_a` | `role_x=r/defowner_a` | **PASS** |
+| sequence in `s_test` by `defowner_a` | `role_y=U*/defowner_a` (grant option) | **PASS** |
+| type by `defowner_a` (global rule) | `role_x=U/defowner_a` | **PASS** |
+| table in `s_test` by `defowner_b` | `role_z=a*/defowner_b` (grant option) | **PASS** |
+| schema by `defowner_b` (global rule) | `role_y=U/defowner_b` | **PASS** |
+| function in `s_test` by `defowner_a` | `PUBLIC=X/defowner_a` | **non-discriminating** |
+
+The function probe is recorded honestly rather than counted as a pass or a failure. Its rule
+grants `EXECUTE` to `PUBLIC`, which is *already* the built-in default —
+`acldefault('f', defowner_a)` is `{=X/defowner_a,defowner_a=X/defowner_a}` — so PostgreSQL stores
+`proacl` as NULL because there is no deviation to record. The **rule** is verifiably reproduced
+(it appears in `pg_default_acl` as `{=X/defowner_a}` and is counted in the 10/10 parity); the
+probe simply cannot distinguish "rule present" from "rule absent" for that case.
+
+**This is a general limitation of probe-based verification**: any default rule that grants exactly
+what the built-in default already grants is invisible on created objects. `pg_default_acl` parity
+is the authoritative check; probes corroborate it, and cannot replace it.
+
+### Rollback and repeated-run behaviour
+
+**Rollback:** an injected failure after revoking every schema edge and every default rule left
+both dimensions byte-unchanged (13 schema edges, 10 defacl rows) and restored `current_user` to
+`supabase_admin`. `SET LOCAL ROLE` reverted with the transaction.
+
+**Repeated run — not a no-op.** A second full run again performed the entire reset (6 schema
+passes plus a full default-rule sweep) and the entire replay (2 schema passes plus a full
+default-rule sweep), converging to an identical state: 13/13 and 10/10, 0 missing and 0 extra.
+As with the relation algorithm, this is convergence to a fixed point, not skip-if-correct.
 
 ## Audit corrections — 2026-08-28
 
