@@ -173,34 +173,57 @@ sch as (
 ),
 
 -- Independently grantable types. Verified by direct test on 17.6:
---   * enum ('e'), domain ('d'), standalone composite ('c' whose typrelid has
---     relkind 'c'), range ('r') and base ('b') accept GRANT USAGE and store typacl.
+--   * enum ('e'), domain ('d'), composite ('c'), range ('r') and base ('b')
+--     accept GRANT USAGE and store typacl.
 --   * multirange ('m') is refused: "cannot set privileges of multirange types.
 --     HINT: Set the privileges of the range type instead."
 --   * array types (typcategory 'A') are refused: "cannot set privileges of array
 --     types. HINT: Set the privileges of the element type instead." Writing
 --     GRANT ... ON TYPE x[] is a syntax error, and the array's typacl stays NULL.
---   * relation-backed row types (composite whose typrelid has relkind <> 'c') are
---     EXCLUDED BY THE FILTER BELOW, and that is a KNOWN COVERAGE GAP rather than a
---     safe exclusion. An earlier revision claimed their privileges "live on the
---     relation, not the type"; that is false. Tested: revoking USAGE on a table's
---     row type makes has_type_privilege() false and makes a column declaration of
---     that type fail with "permission denied for type", while the table's own
---     relacl independently still governs reads. No such ACL exists on the LMS
---     stack today (13 row types, none carrying a typacl), so the gap is latent.
---     See PHASE_2K_ACL_RECOVERY_DESIGN.md, "A coverage gap this verification
---     found in section I".
+--
+-- RELATION-BACKED ROW TYPES ARE CAPTURED. Every table, partitioned table, view,
+-- materialized view and foreign table has a composite row type of the same name,
+-- and that type carries its own ACL, independent of the relation's relacl and
+-- independently enforced. Tested: revoking USAGE on a table's row type makes
+-- has_type_privilege() false and makes a column declaration of that type fail with
+-- "permission denied for type", while the table's own relacl still governs reads.
+-- An earlier revision excluded these on the stated ground that their privileges
+-- "live on the relation, not the type"; that reason was false and the exclusion was
+-- a silent coverage hole.
+--
+-- The backing relkinds are exhaustive for 17.6: pg_class.reltype is non-zero only
+-- for relkind c, f, m, p, r and v. Indexes ('i'), sequences ('S') and TOAST tables
+-- ('t') have no row type at all, so there is nothing to capture for them -- a
+-- sequence has no row type rather than a suppressed one. The relkind list below is
+-- therefore a closed set, and any future relkind not on it is excluded rather than
+-- silently mis-labelled.
+--
+-- IDENTITY. A row type shares its schema-qualified name with its relation, so
+-- object_identity alone is ambiguous. object_kind disambiguates: the relation is
+-- reported as 'table'/'view'/... in sections B and E, and the type as
+-- 'row type (table)'/'row type (view)'/... in sections I and E.
 typ as (
   select t.oid, n.nspname, t.typname, t.typowner, t.typacl,
-         (case t.typtype when 'e' then 'enum type'      when 'd' then 'domain'
-                         when 'c' then 'composite type' when 'r' then 'range type'
-                         when 'b' then 'base type'      else t.typtype::text end) as kind
+         (c.oid is not null and c.relkind <> 'c') as is_rowtype,
+         (case
+            when c.relkind = 'r' then 'row type (table)'
+            when c.relkind = 'p' then 'row type (partitioned table)'
+            when c.relkind = 'v' then 'row type (view)'
+            when c.relkind = 'm' then 'row type (materialized view)'
+            when c.relkind = 'f' then 'row type (foreign table)'
+            when t.typtype = 'e' then 'enum type'
+            when t.typtype = 'd' then 'domain'
+            when t.typtype = 'c' then 'composite type'
+            when t.typtype = 'r' then 'range type'
+            when t.typtype = 'b' then 'base type'
+            else t.typtype::text end) as kind
   from pg_type t
   join pg_namespace n on n.oid = t.typnamespace
+  left join pg_class c on c.oid = t.typrelid
   where n.nspname = 'public'
-    and t.typtype in ('e','d','c','r','b')
-    and t.typcategory <> 'A'
-    and not exists (select 1 from pg_class c where c.oid = t.typrelid and c.relkind <> 'c')
+    and t.typtype in ('e','d','c','r','b')       -- multirange 'm' excluded: GRANT refused
+    and t.typcategory <> 'A'                     -- array types excluded: GRANT refused
+    and (c.oid is null or c.relkind in ('c','r','p','v','m','f'))
 ),
 
 -- Default-privilege rules, factored into a CTE so their roles feed the role
@@ -272,7 +295,16 @@ acl_rows as (
          a.privilege_type::text, a.is_grantable::text,
          (case when ty.typacl is null then 'default-derived' else 'explicit' end)::text
   from typ ty
-  cross join lateral aclexplode(coalesce(ty.typacl, acldefault('T'::"char", ty.typowner))) a
+  cross join lateral aclexplode(
+    -- Standalone types are few and their built-in default is worth stating, so a
+    -- NULL typacl is expanded to acldefault and marked 'default-derived'. Row types
+    -- are as numerous as relations, so expanding every NULL one would restate the
+    -- built-in default once per relation and drown the explicit grants that matter.
+    -- For them only an explicit typacl produces privilege rows; their existence and
+    -- their NULL/empty state are carried unconditionally by section E instead, which
+    -- is what a recovery needs to choose the correct baseline.
+    case when ty.is_rowtype then ty.typacl
+         else coalesce(ty.typacl, acldefault('T'::"char", ty.typowner)) end) a
 
   union all
 

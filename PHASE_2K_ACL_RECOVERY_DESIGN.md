@@ -58,6 +58,16 @@
 > types can hold an explicit, enforced `typacl` that section I excludes. It is latent on the LMS
 > stack (13 such types, none carrying an ACL) but it is a real hole, and it is listed below.
 >
+> **UPDATE 2026-08-28 (fourth round) — the row-type gap is CLOSED.** Section I now captures
+> relation-backed row types. The backing relkinds were established exhaustively rather than
+> assumed: `pg_class.reltype` is non-zero only for relkind `c, f, m, p, r, v`, so tables,
+> partitioned tables, views, materialized views and foreign tables have row types while indexes,
+> **sequences** and TOAST tables have none at all — a sequence has no row type rather than a
+> suppressed one. All eight required behaviours were proven, the integrated recovery test was
+> re-run with row types included, and the capture was re-validated twice against the untouched
+> LMS stack. See "Relation-backed row types" below. One bounded consequence is recorded there and
+> is provenance-only: a NULL `typacl` cannot be restored *as* NULL through SQL.
+>
 > Two further defects were found *by that cycle* and corrected before it passed. Both are recorded
 > because each would have produced a repair that reported success while leaving the target wrong:
 >
@@ -82,12 +92,7 @@
 >    wrappers and servers, databases, tablespaces, languages, and configuration parameters. The
 >    scope contract fails closed on anything it cannot classify, so these produce refusals rather
 >    than silent passes.
-> 4. **Section I does not cover relation-backed row types.** The row type of a table, partitioned
->    table, view, materialised view, foreign table or sequence can carry an explicit `typacl` that
->    is stored *and enforced* (proven below), and the section I CTE excludes it. Nothing on the LMS
->    stack carries such an ACL today, so this is latent rather than active — but the capture would
->    drop one if it appeared, and the recovery would neither reproduce nor remove it.
-> 5. **Row-level security is verified separately and is never represented as an ACL.**
+> 4. **Row-level security is verified separately and is never represented as an ACL.**
 >    "Effective-security parity" below means ACL parity, proven with `has_*_privilege`. RLS state
 >    and policies are covered by their own artifacts — `supabase/discovery/phase_2k_staging_discovery.sql`
 >    reports `relrowsecurity`, `relforcerowsecurity` and per-relation `pg_policy` counts and
@@ -463,7 +468,7 @@ overstated it.
 
 | Item | State |
 |---|---|
-| Capture query | sections A–J. Executed and byte-deterministic on the local stack, a synthetic container, an integrated synthetic database and the restored LMS stack. Sections C and I field-asserted; A, B, D–H, J structurally validated, J additionally proven to fail closed |
+| Capture query | sections A–J, including relation-backed row types. Executed and byte-deterministic on the local stack, a synthetic container, an integrated synthetic database and the restored LMS stack. Sections C, E and I field-asserted; A, B, D, F–H, J structurally validated, J additionally proven to fail closed |
 | Output format | proposed, **awaiting review** |
 | Recovery algorithm | proven in isolated containers across all six supported classes — seven properties, one atomic transaction. **Still not generated as an executable artifact, and not authorized to be** |
 | Recovery artifact | **not designed in executable form, not generated, not applied** |
@@ -658,13 +663,13 @@ Determined by construction rather than assumption:
 | enum `e`, domain `d`, standalone composite `c` (`typrelid` → `relkind 'c'`), range `r`, base `b` | stored | `GRANT USAGE` accepted and recorded; selected by the section I CTE |
 | multirange `m` | never | `GRANT USAGE ON TYPE public.t_multirange` → `ERROR: cannot set privileges of multirange types` / `HINT: Set the privileges of the range type instead.` |
 | array (`typcategory 'A'`) | never | `GRANT … ON TYPE x[]` is a **syntax error**; granting on the internal name `"_x"` → `ERROR: cannot set privileges of array types` / `HINT: Set the privileges of the element type instead.` The array's `typacl` stays NULL and the element type's ACL is unchanged |
-| relation-backed row type `c` (`typrelid` → `relkind <> 'c'`) | **stored and enforced** | **excluded by the current CTE — this is a coverage gap, see below** |
+| relation-backed row type `c` (`typrelid` → `relkind` in `r, p, v, m, f`) | **stored and enforced** | captured — see "Relation-backed row types" |
 
 Section I captures the storing classes and marks a NULL `typacl` `default-derived`, since types
 have a non-empty built-in default (`{=U/owner,owner=U/owner}`) that a restore can diverge from
 silently.
 
-#### A coverage gap this verification found in section I
+#### A coverage gap this verification found in section I — since closed
 
 The earlier exclusion of table row types was documented as "privileges live on the relation, not
 the type". **That reason is false**, and was disproven by direct test on 17.6:
@@ -690,8 +695,8 @@ does. The gap is latent, not active — but a source database could acquire one,
 restore could add one that the recovery would never remove.
 
 Standalone composite types are unaffected and remain covered: `t_comp`, whose `typrelid` has
-`relkind 'c'`, is selected by the CTE. This gap is **not** closed by this cycle and is carried in
-the banner.
+`relkind 'c'`, is selected by the CTE. **This gap was closed in the following round** — see
+"Relation-backed row types".
 
 ### Gap 2 — system-column ACLs: the exclusion was wrong
 
@@ -825,6 +830,131 @@ and that emptiness was confirmed against the catalogues directly rather than ass
 holds **0** columns with a non-NULL `attacl` and **0** grantable-class types. The two new sections
 are therefore untested against real LMS data by absence of subject matter, not by omission.
 
+## Relation-backed row types — 2026-08-28, isolated container only
+
+Closes the coverage gap recorded in the round above. Disposable PostgreSQL 17.6 container
+(`public.ecr.aws/supabase/postgres:17.6.1.165`). Staging and production were not contacted; the
+restored LMS stack was read from twice and never modified; the container and volume were uniquely
+named and removed afterwards.
+
+### Which relations have a row type — established, not assumed
+
+`pg_class.reltype` is non-zero only for relkind `c, f, m, p, r, v`, and zero for `i` (index),
+`S` (sequence) and `t` (TOAST). `GRANT USAGE ON TYPE` was then attempted against one object of
+each kind:
+
+| Object | Row type | `GRANT USAGE ON TYPE` |
+|---|---|---|
+| table `r`, partitioned table `p`, view `v`, materialized view `m`, foreign table `f` | yes | accepted, `typacl` stored |
+| standalone composite `c` | yes (itself) | accepted, already covered |
+| sequence `S` | **none** | `ERROR: type "public.k_seq" does not exist` |
+| index `i`, TOAST `t` | none | not addressable |
+
+A sequence therefore has **no row type at all** rather than one whose privileges are suppressed,
+so the set of backing relkinds in section I is closed for 17.6. Anything not on the list is
+excluded rather than mislabelled.
+
+### The eight required behaviours
+
+| # | Behaviour | Result |
+|---|---|---|
+| 1 | Row-type USAGE granted and revoked independently of table privileges | **PASS** — with `own_r` granting `SELECT` on the table to `vic` and `USAGE` on the row type to `tp`/`gr`, the two axes are fully orthogonal: `vic` has table SELECT and no type USAGE, `tp` and `gr` have type USAGE and no table SELECT |
+| 2 | Enforcement through a column declaration | **PASS** — as a role without USAGE, `CREATE TEMP TABLE probe (x public.k_tbl)` fails `ERROR: permission denied for type k_tbl`, while `select count(*) from public.k_tbl` still succeeds under the table's own `relacl`; a role holding USAGE declares the column successfully |
+| 3 | Explicit grant and grant option | **PASS** — `{own_r=U/own_r,gr=U/own_r,tp=U*/own_r,...}`; the `U*` grant option round-trips through capture and replay |
+| 4 | Third-party grantor | **PASS** — `tp`, holding the grant option, granted onward to `gr`, producing `gr=U/tp`; captured and replayed with grantor intact |
+| 5 | Target-only excess removal | **PASS** — excess grants injected against all three source baselines (explicit, NULL, empty) and all removed |
+| 6 | Exact replay of owner, grantor, grantee, privilege, grantability | **PASS** — 68 edges, 22 of them type edges, 0 missing and 0 extra |
+| 7 | Rollback | **PASS** — failure injected after the final replay stage; all five divergence measures unchanged |
+| 8 | Repeated-run fixed-point convergence | **PASS** — runs 2 and 3 reproduced identical pass counts (4/3/2/2) with divergence at zero |
+
+### How section I represents them
+
+A row type shares its schema-qualified name with its relation, so `object_identity` alone is
+ambiguous. `object_kind` disambiguates: the relation is `table`/`view`/… in sections B and E, the
+type is `row type (table)`/`row type (view)`/… in sections I and E. Identity itself is unchanged
+and stable.
+
+Privilege rows for row types are emitted **only when `typacl` is explicit**, while ownership and
+existence rows are emitted **unconditionally** in section E, annotated `acl null: defaults apply`,
+`acl empty: no privileges`, or plain `ownership`. Standalone types keep their existing behaviour
+of expanding a NULL `typacl` to `acldefault` and marking it `default-derived`.
+
+The asymmetry is deliberate. Row types are as numerous as relations, so expanding every NULL one
+would restate the built-in default once per relation — 26 rows on the LMS stack purely to say
+"nothing has been changed here" — and bury the explicit grants that matter. The three-state
+annotation in section E carries strictly more information than the expansion would, because it
+distinguishes NULL from empty, which the expansion cannot. It is also what the recovery consumes:
+the section E existence rows are the authoritative type inventory, and the preflight fails if a
+captured type is absent from the target or has changed owner. Types whose source ACL is NULL or
+empty contribute no privilege edges and would otherwise be invisible to the recovery.
+
+**If this asymmetry is not wanted, the alternative is to expand NULL row-type ACLs like standalone
+ones.** That is a one-line change, and it would make the two halves of section I uniform at the
+cost of the volume described above. It is flagged rather than decided here.
+
+### Three baselines, and what the recovery must do with each
+
+| Source `typacl` | Means | Recovery target |
+|---|---|---|
+| explicit array | exactly these grants | reproduce the edge set exactly, grantor included |
+| NULL | built-in defaults apply — `PUBLIC` and the owner hold USAGE | drive to `acldefault('T', owner)` |
+| empty `{}` | **nobody**, not even the owner | drive to `{}` |
+
+NULL and empty are not interchangeable, and conflating them would be a security change in either
+direction. The integrated fixture carried all three simultaneously, and excess grants were
+injected against each.
+
+### Leaf-peeling had to be generalised
+
+Types carry grant chains exactly as relations do — `own_r` → `t_grantee` WITH GRANT OPTION →
+`rc` on a table's row type. A flat revoke loop would hit `dependent privileges exist`, so the
+reset's leaf-peeling and its `REVOKE GRANT OPTION FOR … CASCADE` cycle-break were generalised from
+relations alone to all four object classes. Reset converged in 4 passes and replay in 2.
+
+### Integrated re-run
+
+The full integrated synthetic recovery test was rebuilt with row types included: relations, a
+sequence, columns including a system column, a routine, three standalone types, six row types
+across four backing relkinds and all three baselines, nested role memberships, third-party grant
+chains on both a relation and a row type, and default-privilege rules across three owners.
+
+Baseline 796 capture rows, byte-identical across two runs; 68 ACL edges; 7 default groups; a
+**4,454-probe effective-security matrix**, 306 of those probes covering type privileges.
+Divergence was injected in both directions in every class — 11 target-only edges, 10 source-only
+edges, 16 default-rule differences, 59 diverging probes. After the repair, every measure was
+**zero**, including 4,454 of 4,454 effective probes.
+
+### The one bounded consequence: NULL provenance cannot be restored
+
+PostgreSQL does not normalise `typacl` back to NULL when it becomes equal to `acldefault` — that
+was tested directly, and the array persists explicitly. There is no SQL that restores the NULL
+state, so a type whose source `typacl` is NULL and whose target has been diverged ends the repair
+holding an explicit ACL **byte-equal to `acldefault`**. Effective privileges are identical; only
+provenance differs, which is exactly the permitted-difference class already defined in this note.
+
+That difference is visible in the capture and is bounded precisely. Re-capturing after the
+integrated repair produced **12 differing lines against the pre-divergence reference, and nothing
+else**: two section E annotations changing from `acl null: defaults apply` to `ownership`, the
+four section I rows those two types now emit, and the four section G counts that move by exactly
++2 each to match. The empty-ACL row type kept `{}` exactly. Recorded here so a future reader does
+not mistake it for a defect — but it does mean capture-level parity after a repair is
+**not byte-identical** for NULL-sourced types, and only edge-level and effective-level parity are.
+
+### Capture validation
+
+| Target | Runs | Result |
+|---|---|---|
+| Integrated synthetic database, before divergence | 2 | exit 0, no stderr, byte-identical, 796 rows |
+| Integrated synthetic database, after repair | 2 | exit 0, no stderr, byte-identical; 12 lines differ from the reference, all the provenance case above |
+| Restored LMS stack, read-only | 2 | exit 0, no stderr, **byte-identical**, 867 rows |
+
+On the LMS stack the capture grew from 854 to 867 rows — **+13 lines, 0 removed, every one an
+`E. OWNERSHIP` row-type row**. All 13 public row types now appear in ownership/existence coverage
+(12 `row type (table)`, 1 `row type (view)` — `football_team_form`), each annotated `acl null:
+defaults apply`, and **section I contains 0 rows**: none of them currently carries an ACL
+privilege. A direct catalogue cross-check agrees — 12 table row types and 1 view row type, 0 with
+an explicit `typacl`.
+
 ## Audit corrections — 2026-08-28
 
 An adversarial review (50 agents, 4 lenses) confirmed 18 findings after refutation. Classification
@@ -860,12 +990,11 @@ proven in isolation** across all six supported classes — exact effective-secur
 grantor graph, exact default-rule parity, complete removal of target-only excess, atomic rollback
 and fixed-point convergence — after two further defects found during that cycle were corrected.
 
-What is still blocked is **authorization, plus one open coverage gap**: no executable artifact
-exists or is approved; the algorithm has never run against a Supabase-hosted database; object
-classes outside the scope contract are unimplemented and refuse rather than pass; section I does
-not yet cover relation-backed row types, which can hold an enforced `typacl` (latent on the LMS
-stack, but real); and row-level security is verified by separate artifacts rather than represented
-as an ACL here.
+What is still blocked is **authorization**: no executable artifact exists or is approved, and the
+algorithm has never run against a Supabase-hosted database. Two limits remain, and neither is a
+gap in what is claimed: object classes outside the scope contract are unimplemented and refuse
+rather than pass, and row-level security is verified by separate artifacts rather than represented
+as an ACL here. The relation-backed row-type gap is closed.
 
 The next step is review of this note and of the amended capture. Generating repair SQL remains a
 separate decision that this note does not make.
