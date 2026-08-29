@@ -2020,6 +2020,7 @@ Never edit an already-applied migration and never skip a dependency.
 11. 20260824000300_lms_phase_2j_scheduler_readiness.sql
 12. 20260824000400_lms_phase_2k_legacy_acl_hardening.sql
 13. 20260824000500_lms_phase_2k_remove_orphan_rls_auto_enable.sql
+14. 20260824000600_lms_phase_2k_ensure_profile_signup_trigger.sql
 
 This is a draft catch-up sequence only. The unapplied migrations for 2B, 2C, 2E, 2F,
 2G, 2H, 2I, and 2J have been defensively amended in the local working tree: each of the
@@ -2268,3 +2269,93 @@ The `rls_auto_enable()` drift decision is **complete and locally validated**. To
 sections 9 and 10, all three discovery items that remained after the backup/restore gate are now
 resolved at design/local-test level. The exact catch-up sequence still requires separate review
 and explicit approval before any staging application; production remains out of scope.
+
+## 12. Complete local Phase 2K migration dress rehearsal
+
+Recorded 2026-08-29 under explicit operator approval for a complete local-only rehearsal from a
+freshly recreated restored stack. Staging and production were excluded and not contacted.
+
+### Attempt 1 — stopped safely at migration 12
+
+The stack was recreated, verified clean, and restored from the immutable backup. Migrations
+1–11 applied, then `20260824000400_lms_phase_2k_legacy_acl_hardening.sql` refused its
+postcondition. The raw logical restore had inherited the local platform's broader default DML
+grants; 68 unexpected `INSERT`/`UPDATE`/`DELETE` rows and internal-table authenticated grants
+remained.
+
+This was not a defect in staging. It proved that the local rehearsal sequence had omitted the
+already validated ACL-normalization artifact required to make a logical restore reproduce the
+staging ACL baseline. The failed migration transaction rolled back. The entire disposable stack
+was discarded; no retry occurred in place.
+
+### Attempt 2 — ACL baseline corrected; signup-trigger gap exposed
+
+A second fresh stack was restored and then normalized with
+`phase_2k_acl_recovery_staging_7c3164fd_q0a83294a_r2.sql` before migration. The artifact
+reported 327 effective edges, 72 default rules and five approved provenance residuals. All 13
+then-current migrations passed.
+
+The first executable verification stopped because inserting the synthetic local admin user did
+not create a `public.profiles` row. Investigation established that the logical dump restores
+`public.create_profile_for_new_user()` but excludes its trigger on platform-owned `auth.users`.
+Manually inserting a profile would have hidden a recovery defect and was rejected.
+
+Migration `20260824000600_lms_phase_2k_ensure_profile_signup_trigger.sql` was therefore added.
+It fails closed on missing prerequisites or an unexpected same-name trigger, preserves an
+existing correct enabled trigger, and creates it only when absent. A real synthetic signup then
+created its profile successfully.
+
+The same attempt's final default-privilege inspection also found that migration 12 cleaned all
+current tables but left `postgres`'s four unsafe future-table defaults. Migration 12 was amended
+to revoke `MAINTAIN`, `REFERENCES`, `TRIGGER` and `TRUNCATE` from `anon` and `authenticated` in
+`postgres`-owned `public` table defaults, with a fail-closed postcondition. The platform-managed
+`supabase_admin` defaults are explicitly outside that application-owner boundary.
+
+Because two migrations changed, the passing patched-in-place state was not accepted as a full
+rehearsal. The stack was discarded again.
+
+### Attempt 3 — final exact sequence passed from fresh state
+
+The final run used a third freshly initialized stack and the exact committed/draft sequence:
+
+1. verify clean stack and role baseline;
+2. restore intact `roles.sql`, `schema.sql` and `data.sql` in their proven role contexts;
+3. apply the `_r2` ACL-normalization artifact;
+4. apply all 14 migrations in section 6, in order, as `postgres`;
+5. create one synthetic local admin through the actual `auth.users` signup trigger;
+6. run all 11 Phase 1–2J transactional verification suites;
+7. run the Phase 2I and Phase 2J two-session concurrency tests; and
+8. run structural, RLS, ACL, default-privilege, trigger, sentinel and extension assertions.
+
+| Check | Final result |
+|---|---|
+| Restore files | 3 of 3 PASS |
+| ACL normalization | PASS: 327 edges, 72 default rules, 5 approved provenance residuals |
+| Ordered migrations | 14 of 14 PASS |
+| Transactional verification suites | 11 of 11 PASS |
+| Phase 2I two-session automation race | PASS |
+| Phase 2J two-session provider race | PASS |
+| Public base/partitioned tables | 28 |
+| Tables without RLS | 0 |
+| Direct non-`SELECT` table ACLs for `PUBLIC`/`anon`/`authenticated` | 0 |
+| Unsafe `postgres` future-table default edges | 0 |
+| Expected migration sentinels missing | 0 |
+| Signup trigger | present, enabled, correct function |
+| `rls_auto_enable()` | absent |
+| `pg_cron` | not installed |
+| Final ACL capture | 819 rows; two runs byte-identical; SHA-256 `da1a05dbbcd0dc290023f7176cbec03709c6d81f4a37d6227437b63c95eecbad` |
+| Error scan | no `ERROR:` or `FATAL:` in final-run error logs |
+| Backup integrity after rehearsal | all three SHA-256 values still match section 2O |
+
+The measured final execution window was `2026-08-29T09:26:11Z` to `09:27:06Z`, **55 seconds**.
+It begins after the new stack was healthy and clean, so it includes restore, ACL normalization,
+14 migrations, the signup fixture, all verification suites, both concurrency tests and final
+assertions, but **excludes local stack startup**. It is a rehearsal duration, not a production
+deployment or recovery-time guarantee; staging remains empty and the test hardware is local.
+
+### Dress-rehearsal conclusion
+
+**PASS.** The exact migration sequence is locally executable from a freshly restored and
+ACL-normalized staging backup. The rehearsal authorizes no remote action. Staging application
+still requires a separately approved remote run plan with an explicit target check, stop rules,
+operator checkpoints and post-application verification. Production remains out of scope.

@@ -45,6 +45,12 @@ revoke maintain,references,trigger,truncate on table
   public.profiles
 from authenticated;
 
+-- Prevent the same legacy grants from returning on the next application table.
+-- Phase 2K application migrations run as postgres; supabase_admin-owned defaults are
+-- platform-managed and deliberately outside this migration's ownership boundary.
+alter default privileges for role postgres in schema public
+  revoke maintain,references,trigger,truncate on tables from anon,authenticated;
+
 do $$
 declare unexpected text;
 begin
@@ -89,6 +95,22 @@ begin
       where has_table_privilege('anon',format('public.%I',relation_name),'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
     ) then
     raise exception 'Phase 2K ACL hardening found unintended API access after revocation';
+  end if;
+
+  if exists(
+    select 1
+    from pg_default_acl defaults
+    cross join lateral aclexplode(defaults.defaclacl) acl
+    join pg_roles owner_role on owner_role.oid=defaults.defaclrole
+    join pg_roles grantee_role on grantee_role.oid=acl.grantee
+    join pg_namespace namespace on namespace.oid=defaults.defaclnamespace
+    where owner_role.rolname='postgres'
+      and namespace.nspname='public'
+      and defaults.defaclobjtype='r'
+      and grantee_role.rolname in('anon','authenticated')
+      and acl.privilege_type in('MAINTAIN','REFERENCES','TRIGGER','TRUNCATE')
+  ) then
+    raise exception 'Phase 2K ACL hardening left unsafe postgres table defaults';
   end if;
 end $$;
 
