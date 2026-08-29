@@ -18,13 +18,10 @@ history repair, or restoration over either remote database.
 - Remote staging already is the source ACL baseline. Its remote operation is only the ordered
   migration push described below.
 
-The final approved execution commit must be recorded here before use:
-
-```text
-APPROVED_COMMIT=<replace only after this runbook and all migrations are committed and reviewed>
-```
-
-Any placeholder, dirty tree, different commit, or unreviewed change stops the run.
+The final approved execution commit must be recorded in the separate execution evidence before
+use. Do not write it into this runbook: changing this file would create a new commit and invalidate
+the recorded identity. A missing evidence value, dirty tree, different commit, or unreviewed change
+stops the run.
 
 ## 2. Exact migration payload
 
