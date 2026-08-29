@@ -1,14 +1,22 @@
--- Phase 2K: remove the unregistered rls_auto_enable() documentation example.
--- RLS remains explicit in each reviewed table-creation migration.
+-- Phase 2K: remove the legacy ensure_rls event trigger and its
+-- rls_auto_enable() function. RLS remains explicit in each reviewed
+-- table-creation migration.
 begin;
 
 do $$
 declare function_oid oid:=to_regprocedure('public.rls_auto_enable()');
 declare function_row record;
+declare trigger_row record;
+declare trigger_count integer;
 declare dependants text;
 begin
   -- Absence is the desired state and makes this migration safe to re-run.
-  if function_oid is null then return; end if;
+  if function_oid is null then
+    if exists(select 1 from pg_event_trigger where evtname='ensure_rls') then
+      raise exception 'Phase 2K refuses to remove an unexpected ensure_rls event trigger';
+    end if;
+    return;
+  end if;
 
   select p.prorettype='pg_catalog.event_trigger'::regtype as returns_event_trigger,
          p.prosecdef,
@@ -30,9 +38,27 @@ begin
     raise exception 'Phase 2K refuses to remove an unexpected rls_auto_enable() definition';
   end if;
 
-  if exists(select 1 from pg_event_trigger where evtfoid=function_oid) then
-    raise exception 'Phase 2K refuses to remove rls_auto_enable(): an event trigger uses it';
+  select count(*)
+  into trigger_count
+  from pg_event_trigger
+  where evtfoid=function_oid;
+
+  select evtname,evtevent,evtenabled,evttags
+  into trigger_row
+  from pg_event_trigger
+  where evtfoid=function_oid
+    and evtname='ensure_rls';
+
+  if trigger_count<>1
+    or trigger_row.evtname is null
+    or trigger_row.evtevent<>'ddl_command_end'
+    or trigger_row.evtenabled<>'O'
+    or cardinality(trigger_row.evttags)<>3
+    or not trigger_row.evttags @> array['CREATE TABLE','CREATE TABLE AS','SELECT INTO']::text[] then
+    raise exception 'Phase 2K refuses to remove an unexpected rls_auto_enable() event-trigger registration';
   end if;
+
+  execute 'drop event trigger ensure_rls';
 
   select string_agg(format('%s:%s',dep.classid::regclass,dep.objid),', ' order by dep.classid::regclass::text,dep.objid)
   into dependants
@@ -49,6 +75,9 @@ end $$;
 
 do $$
 begin
+  if exists(select 1 from pg_event_trigger where evtname='ensure_rls') then
+    raise exception 'Phase 2K did not remove event trigger ensure_rls';
+  end if;
   if to_regprocedure('public.rls_auto_enable()') is not null then
     raise exception 'Phase 2K did not remove public.rls_auto_enable()';
   end if;

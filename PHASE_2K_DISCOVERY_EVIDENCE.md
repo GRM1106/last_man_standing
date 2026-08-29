@@ -2218,6 +2218,11 @@ authorize migrations.
 
 ## 11. Orphaned `rls_auto_enable()` review and removal design
 
+**Superseded by section 13:** the staging schema dump and restored copy omitted the hosted
+event-trigger registration. The first staging application proved that `ensure_rls` is registered
+to this function on staging. The historical reasoning below is retained as the record of the
+earlier evidence and is not the current conclusion.
+
 Recorded 2026-08-28 under the operator-approved read-only review and subsequent approval to
 design removal with fail-closed dependency checks and local testing.
 
@@ -2476,3 +2481,67 @@ private output hashes are:
 Checkpoint D is now **PASS**. This is read-only preflight evidence, not migration approval: no
 migration was applied, production was not contacted, and the runbook's separate Checkpoint E
 operator approval remains absent.
+
+## 13. Staging application stop and `ensure_rls` correction
+
+Recorded 2026-08-29 under explicit approval to apply the exact 14-file staging payload at commit
+`94178eb714636969d1b4f84d64e0f9d5ed973e25`, backed by RPO
+`2026-08-29T11:26:12Z`. Production, Edge Functions, secrets, cron and git remotes remained out of
+scope.
+
+### Partial staging application
+
+The pinned CLI connected to staging ref `evhiixndiuwwodsouyhf` and began applying the approved
+payload without presenting an interactive confirmation prompt. Migrations
+`20260823000100` through `20260824000400` applied in the expected order. Migration
+`20260824000500_lms_phase_2k_remove_orphan_rls_auto_enable.sql` then failed closed before dropping
+anything because an event trigger still used `public.rls_auto_enable()`. Migration
+`20260824000600` was not attempted.
+
+A read-only `migration list` after the stop confirmed 36 remote-applied versions: the original 24
+plus the first 12 files of the approved payload. Exactly `20260824000500` and `20260824000600`
+remain pending. This is a partial migration application, not a completed Phase 2K staging run.
+
+### Read-only staging diagnosis
+
+An operator-run SQL Editor query used an explicit read-only transaction and returned exactly one
+registration for `public.rls_auto_enable()`:
+
+| Field | Observed value |
+|---|---|
+| Event trigger | `ensure_rls` |
+| Event | `ddl_command_end` |
+| Enabled state | `O` (enabled) |
+| Command tags | `CREATE TABLE`, `CREATE TABLE AS`, `SELECT INTO` |
+| Function owner | `postgres` |
+| Security definer | `true` |
+
+The fresh pre-application schema backup contains the expected function definition but no event
+trigger DDL. That omission caused the restored-copy review to classify the function as orphaned;
+the live staging catalogue is authoritative for the hosted registration and disproves that
+classification.
+
+### Corrected migration and isolated local validation
+
+The operator approved correcting migration `00500` locally before any staging retry. The migration
+now verifies the known function definition and requires exactly one linked event trigger with the
+observed name, event, enabled state and complete three-tag set. It refuses any mismatch. Only after
+those checks pass does it drop `ensure_rls`, re-check for other dependencies, revoke client-role
+function privileges and drop `public.rls_auto_enable()`. Its postcondition requires both objects to
+be absent; already-absent state remains a safe no-op.
+
+Validation used a uniquely named isolated PostgreSQL 17.6 container and a synthetic fixture matching
+the staging registration:
+
+| Check | Result |
+|---|---|
+| Exact staging-shaped fixture | created successfully |
+| Corrected migration | committed successfully |
+| Trigger after application | absent |
+| Function after application | absent |
+| Second application | committed; absence preserved |
+| Deliberately disabled trigger | refused before removal |
+| State after refusal | function present; trigger present and still disabled |
+
+No staging retry occurred during correction or validation. The remaining two migrations require a
+new explicit approval after review of this change. Production was not contacted.
