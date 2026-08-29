@@ -2359,3 +2359,10 @@ deployment or recovery-time guarantee; staging remains empty and the test hardwa
 ACL-normalized staging backup. The rehearsal authorizes no remote action. Staging application
 still requires a separately approved remote run plan with an explicit target check, stop rules,
 operator checkpoints and post-application verification. Production remains out of scope.
+
+### Staging run-plan design
+
+`PHASE_2K_STAGING_MIGRATION_RUNBOOK.md` now defines that remote plan. It is **designed but not
+approved for execution**: repository identity, read-only staging confirmation, a fresh backup,
+runner-history reconciliation and an exact 14-file dry run must all pass before a new explicit
+mutation approval can be requested. No remote command was run while designing it.
