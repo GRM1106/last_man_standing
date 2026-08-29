@@ -2448,3 +2448,31 @@ Phase 2J intentionally creates one disabled-by-default `lms_operations_config` s
 
 This reconciliation is locally proven only. The stopped Checkpoint D has not been repeated, no
 migration has been applied remotely, and production was not contacted.
+
+### Checkpoint D rerun after reconciliation
+
+The preceding statement that Checkpoint D had not been repeated is superseded by this dated
+rerun. The operator approved Checkpoints A and D against commit
+`6df4fdfd9d5995ffa415b3489378321a38d49f74`, explicitly withholding migration application and
+all production contact.
+
+Checkpoint A passed with a clean tree, 38 total migration files, 14 pending files, migrations
+enabled, and the 14 pending SHA-256 values recomputed. The owner-only Checkpoint D outputs are
+retained outside the repository at
+`/Users/grantmiller/Documents/LMS-Backups/phase-2k-staging-preflight-2026-08-29-r2`.
+
+`migration list` exited zero and reconciled all 24 historical versions on both sides, followed by
+exactly 14 local-only pending versions. `db push --dry-run --skip-vault` also exited zero and listed
+exactly the 14-file payload in the staging runbook, in order, with zero seeds and zero roles. The
+private output hashes are:
+
+| Output | SHA-256 |
+|---|---|
+| `migration-list.txt` | `7293572f5e972e08954147043c1689e9f54064381d8c0086e18101c4090119ad` |
+| `migration-list.err` | `b9977cb727ae28f6dfc5ee83a4ca928c7a9f42b11c4757f73dd5a17e85681a5f` |
+| `db-push-dry-run.txt` | `d3ca1f3346f1c02228236f221d2e577eb65a88c39e5e418a70b9270aa171dd94` |
+| `db-push-dry-run.err` | `9437e66f6681d4a2f033b7f1211129c981347f82d31edb373b73beed9b8abf40` |
+
+Checkpoint D is now **PASS**. This is read-only preflight evidence, not migration approval: no
+migration was applied, production was not contacted, and the runbook's separate Checkpoint E
+operator approval remains absent.
