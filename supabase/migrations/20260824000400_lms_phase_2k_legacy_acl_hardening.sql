@@ -1,5 +1,6 @@
 -- Phase 2K: remove legacy default-derived table privileges from API roles.
--- This migration deliberately preserves the eight authenticated SELECT grants.
+-- This migration establishes the complete intended client-role ACL explicitly so its result
+-- does not depend on the target's starting default privileges.
 begin;
 
 do $$
@@ -21,7 +22,7 @@ begin
   end loop;
 end $$;
 
-revoke maintain,references,trigger,truncate on table
+revoke all privileges on table
   public.football_fixtures,
   public.football_team_form,
   public.football_teams,
@@ -32,9 +33,9 @@ revoke maintain,references,trigger,truncate on table
   public.pot_players,
   public.pots,
   public.profiles
-from anon;
+from anon,authenticated;
 
-revoke maintain,references,trigger,truncate on table
+grant select on table
   public.football_fixtures,
   public.football_team_form,
   public.football_teams,
@@ -43,13 +44,13 @@ revoke maintain,references,trigger,truncate on table
   public.pot_players,
   public.pots,
   public.profiles
-from authenticated;
+to authenticated;
 
 -- Prevent the same legacy grants from returning on the next application table.
 -- Phase 2K application migrations run as postgres; supabase_admin-owned defaults are
 -- platform-managed and deliberately outside this migration's ownership boundary.
 alter default privileges for role postgres in schema public
-  revoke maintain,references,trigger,truncate on tables from anon,authenticated;
+  revoke all privileges on tables from anon,authenticated;
 
 do $$
 declare unexpected text;
@@ -108,7 +109,6 @@ begin
       and namespace.nspname='public'
       and defaults.defaclobjtype='r'
       and grantee_role.rolname in('anon','authenticated')
-      and acl.privilege_type in('MAINTAIN','REFERENCES','TRIGGER','TRUNCATE')
   ) then
     raise exception 'Phase 2K ACL hardening left unsafe postgres table defaults';
   end if;

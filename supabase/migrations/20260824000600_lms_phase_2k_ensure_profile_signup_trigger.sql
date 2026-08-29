@@ -12,7 +12,7 @@ begin
     raise exception 'Phase 2K profile trigger requires public.create_profile_for_new_user()';
   end if;
 
-  select t.tgfoid, t.tgenabled, pg_get_triggerdef(t.oid) as definition
+  select t.tgfoid, t.tgenabled, t.tgtype
   into trigger_row
   from pg_trigger t
   where t.tgrelid='auth.users'::regclass
@@ -22,7 +22,7 @@ begin
   if found then
     if trigger_row.tgfoid<>'public.create_profile_for_new_user()'::regprocedure
       or trigger_row.tgenabled<>'O'
-      or trigger_row.definition not like 'CREATE TRIGGER create_profile_after_signup AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.create_profile_for_new_user()%' then
+      or trigger_row.tgtype<>5 then -- ROW (1) + INSERT (4), with no BEFORE/INSTEAD bit
       raise exception 'Phase 2K refuses an unexpected create_profile_after_signup trigger';
     end if;
   else
@@ -40,6 +40,7 @@ begin
       and t.tgname='create_profile_after_signup'
       and not t.tgisinternal
       and t.tgenabled='O'
+      and t.tgtype=5
       and t.tgfoid='public.create_profile_for_new_user()'::regprocedure
   ) then
     raise exception 'Phase 2K did not establish the profile signup trigger';

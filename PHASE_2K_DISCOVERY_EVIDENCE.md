@@ -2366,3 +2366,85 @@ operator checkpoints and post-application verification. Production remains out o
 approved for execution**: repository identity, read-only staging confirmation, a fresh backup,
 runner-history reconciliation and an exact 14-file dry run must all pass before a new explicit
 mutation approval can be requested. No remote command was run while designing it.
+
+## 10. Staging preflight and historical migration reconciliation
+
+### Checkpoints A–C
+
+The operator approved staging Checkpoints A–D only, explicitly withholding migration application
+and all production contact. Repository identity initially passed at `6d14151`; a documentation-only
+credential-scan correction was then committed as `51f243b76bff3cbf19ef877c5774277f5b86ef49`, and
+Checkpoint A passed again there with a clean tree and the expected 14 pending migrations.
+
+Read-only staging confirmation reproduced the recorded state:
+
+- Query 1 returned 148 rows and its exported CSV was byte-identical to the prior staging capture
+  (SHA-256 `ff44fba83bc0a05142d93fd8c264e2fd68813a65547e1dd677f00dc850534a47`);
+- Query 2 returned the expected 24 versions ending at `20260822002400`;
+- Query 3 returned eight zero row counts, and `auth.users` separately returned zero; and
+- the authenticated CLI session could see staging, while no default linked project was configured.
+
+A fresh backup completed successfully at
+`/Users/grantmiller/Documents/LMS-Backups/lms-staging-backup.u05OQA`:
+
+| Artifact | Bytes | SHA-256 |
+|---|---:|---|
+| `roles.sql` | 370 | `168a95a9c745af5ed4679751f90419ac9dc434240a213b03e32a06d5664c2308` |
+| `schema.sql` | 121177 | `d33f5d0cc0533c3c4a298fedc9a17e9fb3b134d2a37075d200810d545dafdd80` |
+| `data.sql` | 13628 | `3b87ef6ec11cac20200dac2476439d7d46b6e8587c1bb09461c66eec96b81127` |
+
+The backup window was `2026-08-29T11:26:02Z` to `11:26:12Z` (10 seconds), giving RPO
+`2026-08-29T11:26:12Z`. All files are `600`; the directory is `700`. The known
+`fixture_result_overrides` circular-foreign-key warning recurred without an error. The companion
+24-row ledger is anchored to evidence source commit
+`c2cccdce3c3bef2636aac725bb54021c42bb9247` and evidence SHA-256
+`8ede09cc07793d7847c90ab3bdc61d875891379e869767ec4bcd0c60b26339b4`.
+
+### Checkpoint D stop
+
+`migration list` exited zero and showed exactly 24 remote-applied plus 14 local-pending versions.
+The first `db push --dry-run --skip-vault` also exited zero but listed no migration because
+`[db.migrations]` was disabled. A private temporary runner with migrations enabled then failed
+closed with `LegacyDbPushMissingLocalError`: all 24 applied remote versions were absent from the
+local migration directory. No migration repair, `--include-all`, remote mutation or workaround was
+attempted. Checkpoint D therefore stopped.
+
+### Historical reconciliation and local proof
+
+The operator separately approved a local-only reconciliation. The 24 ledger names map one-to-one
+to the 24 ordered SQL modules already retained under `supabase/`; every source file was unchanged
+since its recorded implementation commit. Byte-identical versioned copies were added under
+`supabase/migrations/`, preserving the documented result-corrections SHA-256
+`7b4af55bf5f3e585fdd2f681cc645339694a7a82cef1e6da2d68d2596a38eccf`.
+`[db.migrations]` was enabled, producing an ordered 38-file chain.
+
+Fresh-stack execution exposed two integration assumptions that the restored-backup rehearsal had
+masked:
+
+1. the legacy ACL migration subtracted only four unsafe privileges and depended on prior ACL
+   normalization; it now establishes the complete intended state by revoking all client-role table
+   privileges, re-granting only the approved eight authenticated `SELECT` privileges, and removing
+   all client-role future-table defaults owned by `postgres`; and
+2. the signup-trigger migration compared formatting-sensitive `pg_get_triggerdef()` text; it now
+   checks the function OID, enabled state and exact `AFTER INSERT FOR EACH ROW` catalogue bitmask.
+
+The earlier dress-rehearsal statement that the ACL migration revokes only `MAINTAIN`,
+`REFERENCES`, `TRIGGER` and `TRUNCATE` is superseded for the unapplied migration by this complete
+known-state rule.
+
+After those corrections, two separate fresh local stacks applied all 38 migrations successfully.
+The first successful stack also passed:
+
+- a real synthetic `auth.users` insertion through the signup trigger;
+- all 11 transactional Phase 1–2J verification suites; and
+- the Phase 2I and Phase 2J two-session concurrency races.
+
+The final clean replay produced 38 ledger rows (`20260821000100` through `20260824000600`), 28
+public base/partitioned tables with RLS enabled on all 28, zero `auth.users`, zero rows across the
+eight core application tables, zero unsafe direct client ACLs, zero client-role `postgres` future
+table defaults, the correct enabled signup trigger, no `rls_auto_enable()`, and no `pg_cron`.
+Phase 2J intentionally creates one disabled-by-default `lms_operations_config` singleton and one
+`lms_provider_state` singleton; those are configuration state, not player or competition data.
+
+This reconciliation is locally proven only. The stopped Checkpoint D has not been repeated, no
+migration has been applied remotely, and production was not contacted.

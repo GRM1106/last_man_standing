@@ -17,6 +17,9 @@ history repair, or restoration over either remote database.
   staging.
 - Remote staging already is the source ACL baseline. Its remote operation is only the ordered
   migration push described below.
+- The 24 applied remote versions are represented locally by byte-identical copies of their
+  original ordered source modules. Together with the 14 pending files, the repository contains
+  exactly 38 migrations and `[db.migrations]` is enabled.
 
 The final approved execution commit must be recorded in the separate execution evidence before
 use. Do not write it into this runbook: changing this file would create a new commit and invalidate
@@ -82,8 +85,14 @@ APPROVED_COMMIT="<paste the reviewed full commit hash>"
   echo "REFUSING: HEAD does not match the approved commit"; exit 1;
 }
 
-test "$(find supabase/migrations -maxdepth 1 -type f -name '202608*.sql' | wc -l | tr -d ' ')" = 14 || {
-  echo "REFUSING: expected exactly 14 Phase 1/2 migration files"; exit 1;
+test "$(find supabase/migrations -maxdepth 1 -type f -name '202608*.sql' | wc -l | tr -d ' ')" = 38 || {
+  echo "REFUSING: expected exactly 38 historical plus Phase 1/2 migration files"; exit 1;
+}
+test "$(find supabase/migrations -maxdepth 1 -type f \( -name '20260823*.sql' -o -name '20260824*.sql' \) | wc -l | tr -d ' ')" = 14 || {
+  echo "REFUSING: expected exactly 14 pending Phase 1/2 migration files"; exit 1;
+}
+grep -A2 '^\[db\.migrations\]$' supabase/config.toml | grep -qx 'enabled = true' || {
+  echo "REFUSING: the migration runner is not enabled"; exit 1;
 }
 git diff --check
 ```
@@ -214,9 +223,11 @@ Run these read-only checks instead:
    - all 28 public base tables have RLS enabled;
    - no disabled application trigger or unexpected policy/routine appears;
    - the ledger contains exactly 38 rows.
-3. Use Query 3 to confirm exact row counts remain zero for `auth.users` and all application tables
-   it covers. Independently confirm that all 28 public base tables exist; new tables must not
-   acquire rows merely by applying the empty-staging migration chain.
+3. Use Query 3 to confirm exact row counts remain zero for `auth.users` and all eight application
+   tables it covers. Independently confirm that all 28 public base tables exist. The only rows
+   created by the migration chain must be one disabled-by-default singleton in
+   `lms_operations_config` and one singleton in `lms_provider_state`; every player, competition,
+   run-history and review table must remain empty.
 4. Run `supabase/discovery/phase_2k_acl_capture.sql` unchanged, export the complete CSV outside
    the repository with directory `700` and file `600`, and record its SHA-256.
 5. Require all of the following catalogue assertions:
@@ -266,6 +277,14 @@ where tgrelid='auth.users'::regclass
 select count(*) as pg_cron_installed from pg_extension where extname='pg_cron';
 -- expect 0; scheduler deployment is a separate future decision
 
+select
+  (select count(*) from public.lms_operations_config) as operations_config_rows,
+  (select count(*) from public.lms_provider_state) as provider_state_rows,
+  (select count(*) from public.lms_operations_config
+    where provider_automation_enabled or competition_automation_enabled or scheduler_expected)
+    as enabled_operation_rows;
+-- expect 1, 1, 0
+
 commit;
 ```
 
@@ -278,7 +297,8 @@ The staging database migration is complete only when:
 
 - the push exited `0`;
 - the 38-row ledger and all sentinels agree;
-- all tables remain empty and RLS-enabled;
+- `auth.users` and application data tables remain empty, the two expected Phase 2J singleton rows
+  exist with automation disabled, and all 28 public tables remain RLS-enabled;
 - the ACL/default/trigger/orphan checks pass;
 - the fresh backup remains intact; and
 - sanitized evidence is committed separately.
