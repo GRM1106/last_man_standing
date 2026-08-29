@@ -324,7 +324,7 @@ fi
 #    Only file names are printed — never any value.
 hits="$(grep -rlI --exclude-dir=.git --exclude-dir=node_modules \
           -e 'SUPABASE_DB_PASSWORD' -- . 2>/dev/null \
-        | grep -vE '(PHASE_2K_BACKUP_RESTORE_RUNBOOK|PHASE_2K_DISCOVERY_EVIDENCE)\.md$' || true)"
+        | grep -vE '(PHASE_2K_BACKUP_RESTORE_RUNBOOK|PHASE_2K_DISCOVERY_EVIDENCE|PHASE_2K_STAGING_MIGRATION_RUNBOOK)\.md$' || true)"
 if [ -n "$hits" ]; then
   echo "REFUSING: repository files reference SUPABASE_DB_PASSWORD (names only):"
   printf '  %s\n' $hits
