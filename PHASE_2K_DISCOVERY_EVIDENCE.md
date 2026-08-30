@@ -2545,3 +2545,58 @@ the staging registration:
 
 No staging retry occurred during correction or validation. The remaining two migrations require a
 new explicit approval after review of this change. Production was not contacted.
+
+### Approved retry and completed staging application
+
+The preceding statement is superseded by the operator-approved retry at commit
+`b0afb3d8a0b5f1630a3a783ee29a10cc85efbc5e`, still backed by RPO
+`2026-08-29T11:26:12Z`. The pinned CLI applied exactly the two remaining files:
+
+1. `20260824000500_lms_phase_2k_remove_orphan_rls_auto_enable.sql`; and
+2. `20260824000600_lms_phase_2k_ensure_profile_signup_trigger.sql`.
+
+The push exited `0` and reported no seeds or roles. A read-only migration-list check then showed
+all 38 local and remote versions aligned, from `20260821000100` through `20260824000600`, with no
+pending or remote-only version.
+
+### Checkpoint F — post-application verification
+
+All remote SQL below ran in explicit read-only transactions against staging ref
+`evhiixndiuwwodsouyhf`. Production was not contacted.
+
+| Check | Result |
+|---|---|
+| Query 1 inventory | 262 rows |
+| Phase 1–2J sentinels | 21 of 21 present |
+| Public base/partitioned tables | 28 |
+| Tables with RLS disabled | 0 |
+| Policies | 25; all permissive `SELECT` policies |
+| Public-table triggers | 23; all enabled |
+| Query 2 migration ledger | 38 rows |
+| Query 3 core application tables | 8 rows; every exact count `0` |
+| `auth.users` | 0 rows |
+| Unsafe current client table edges | 0 |
+| Unsafe `postgres` future-table edges | 0 |
+| `public.rls_auto_enable()` | absent |
+| Signup trigger | exactly 1; enabled and linked to `create_profile_for_new_user()` |
+| `pg_cron` | not installed |
+| Phase 2J singleton rows | operations config `1`; provider state `1` |
+| Enabled automation rows | 0 |
+
+The complete Query 1 result is stored outside the repository at
+`/Users/grantmiller/Documents/LMS-Backups/phase-2k-staging-post-migration-2026-08-30/query1-after.csv`,
+mode `600`, 28,769 bytes, SHA-256
+`88f90bec439aed001c563ad5997627f853ef7ed3baa8792086bbf03a50155349`.
+
+The unchanged ACL capture returned 818 rows and is stored outside the repository at
+`/Users/grantmiller/Documents/LMS-ACL-Captures/2026-08-30-staging-post-phase-2k/phase_2k_acl_capture_staging_post_migration.csv`,
+mode `600`, 98,612 bytes, SHA-256
+`f91a0fb26a99acadc68dbc43c1f0f0b432ef6858b8483a64a512e343314a74e5`.
+Its section counts are A `7`, B `378`, C `0`, D `142`, E `153`, F `70`, G `10`, H `48`,
+I `0`, J `10`; every row has the expected nine-column shape and no schema is `UNCLASSIFIED`.
+
+### Completion boundary
+
+The Phase 2K database migration is **complete on empty staging only**. This does not authorize or
+perform any production contact, Edge Function deployment, secret configuration, cron setup,
+automation enablement, UI deployment or git push. Those remain separately gated.
