@@ -2646,3 +2646,31 @@ that exact Site URL and redirect entries; broad account/project wildcards are pr
 confirmation relies on Site URL, while the Google flow uses `window.location.origin` and remains
 deferred for separate provider review. Signed-out Wave 0 is the completion boundary; test identities
 and all later smoke waves remain separately gated.
+
+### Vercel staging-project discovery, creation and local link
+
+The preceding design-only state is superseded in part by separately approved Vercel actions on
+2026-08-30. Read-only discovery confirmed Vercel user `grm1106`, scope slug
+`grm1106s-projects`, and one pre-existing project, `last-man-standing`, whose displayed production
+URL was `https://www.grm-lms.co.uk`. No dedicated LMS staging project existed; the production
+project was not opened or changed.
+
+The operator then approved creation of an empty, separate staging project and local linking only:
+
+| Field | Confirmed value |
+|---|---|
+| Project name | `last-man-standing-staging` |
+| Project ID | `prj_7e9MI9tYTLrSlSrdmaXWu2oIs6ZV` |
+| Scope slug | `grm1106s-projects` |
+| Scope ID | `team_I4aliqhGtzdQ2j0U5RqB8ROI` |
+| Local link | `.vercel/project.json`, Git-ignored |
+| Git integration | not linked |
+| Environment variables | none configured remotely |
+| Deployment / stable origin | none created; origin remains unknown |
+
+Vercel CLI created `.env.local` with a temporary OIDC token while linking, despite variable/secret
+configuration being outside the approval. The newly created file was removed immediately without
+printing its value. Its broad `.env*` ignore rule was also removed because its ordering would have
+hidden `.env.example` and `.env.staging.example`; only `.vercel` remains ignored, committed at
+`425a87c3abc412bf53d512ac82bf20aeb7562d51`. Both example files remain trackable. No deployment,
+Auth-setting or database change, production mutation, secret/cron configuration or push occurred.

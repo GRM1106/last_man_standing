@@ -1,6 +1,6 @@
 # Phase 2K — Staging Application Deployment and Auth Redirect Runbook
 
-Status: **DESIGNED — NOT APPROVED FOR EXECUTION**
+Status: **CHECKPOINT B PARTIAL — PROJECT CREATED AND LOCALLY LINKED; NOT DEPLOYED**
 
 Pinned source commit: `cd0d5ac9708a9ce693d8cfa4712055b44133016d`
 
@@ -16,9 +16,19 @@ This runbook defines how a future operator can create one isolated staging appli
 deploy the staging build policy, and configure exact staging Auth redirects without touching the
 production application.
 
-The repository is not linked to any Vercel project: `.vercel/project.json` is absent. No staging
-Vercel project, team/scope, project ID or stable staging origin is recorded. Those values must be
-obtained from Vercel and operator-confirmed; they must not be guessed.
+Read-only discovery confirmed Vercel user `grm1106` and scope `grm1106s-projects`. The only existing
+project was `last-man-standing`, whose latest production URL was `https://www.grm-lms.co.uk`.
+No dedicated staging project existed.
+
+Under separate operator approval, the empty project `last-man-standing-staging` was created and this
+checkout was linked to it. The ignored local `.vercel/project.json` was inspected immediately and
+matched the recorded staging project and scope IDs below. No Git repository was linked, no variable
+was configured, no deployment or domain was created, and the production project was not opened or
+changed. Vercel CLI also created a local `.env.local` containing a temporary OIDC token as an
+unrequested side effect; that new file was removed immediately without displaying its value. The
+CLI-added broad `.env*` ignore was rejected because it would hide the tracked example files; only
+`.vercel` was added to `.gitignore`, committed at
+`425a87c3abc412bf53d512ac82bf20aeb7562d51`.
 
 The implementation at the pinned commit provides:
 
@@ -36,17 +46,18 @@ Use a **separate Vercel project** whose sole purpose is LMS staging. Do not use 
 inside the production Vercel project: project-level settings, environment variables, aliases and
 operator selection would remain coupled to production.
 
-Proposed Vercel project name: `last-man-standing-staging`.
+Selected Vercel project name: `last-man-standing-staging`.
 
-This is a proposal, not an asserted existing resource. Before any remote action the operator must
-record:
+The confirmed identity is:
 
 | Field | Required value |
 |---|---|
-| Vercel team/scope | exact operator-selected slug |
-| Vercel project name | exact available name; proposed value above |
-| Vercel project ID | ID returned by Vercel after creation/linking |
-| Stable staging origin | exact HTTPS project domain |
+| Vercel user | `grm1106` |
+| Vercel team/scope slug | `grm1106s-projects` |
+| Vercel scope ID | `team_I4aliqhGtzdQ2j0U5RqB8ROI` |
+| Vercel project name | `last-man-standing-staging` |
+| Vercel project ID | `prj_7e9MI9tYTLrSlSrdmaXWu2oIs6ZV` |
+| Stable staging origin | **not created; remains unknown** |
 | Supabase project ref | must equal `evhiixndiuwwodsouyhf` |
 | Source commit | must equal the pinned commit or a separately reviewed successor |
 | Staging build policy | `vercel.staging.json` SHA-256 at execution time |
@@ -88,7 +99,8 @@ Record counts and hashes only. Do not commit the staging key or built bundle.
 
 ## 5. Checkpoint B — Vercel project identification
 
-Requires separate remote-read/create authorization. Do not proceed from this design approval.
+Read-only discovery, empty-project creation and local linking were separately approved and completed.
+Public-key configuration and deployment remain unapproved.
 
 The operator must:
 
@@ -96,7 +108,7 @@ The operator must:
 2. prove that the selected project is not the production application project;
 3. create or select the dedicated staging project;
 4. record its exact project ID, project name and scope privately;
-5. configure the staging public-key variable only on that project;
+5. configure the staging public-key variable only on that project — **not yet performed**;
 6. leave Git auto-deployment disabled unless separately approved; and
 7. confirm that no domain assigned to the production application is attached.
 
