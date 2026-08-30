@@ -2627,3 +2627,22 @@ exclusion: the production bundle and CSP contain no staging ref, and the staging
 contain no production ref. A staging build with no key refused. All 75 existing tests plus the new
 deployment-policy assertion passed. No real staging key was stored, no bundle was deployed, and no
 remote system was contacted or changed.
+
+## 15. Staging application deployment and Auth redirect design
+
+Recorded 2026-08-30 under operator approval to design only at commit
+`cd0d5ac9708a9ce693d8cfa4712055b44133016d`. No deployment, Vercel project operation, Auth-setting
+change, database contact, function/secret/cron configuration, production contact or push occurred.
+
+`PHASE_2K_STAGING_APP_DEPLOYMENT_RUNBOOK.md` selects a separate staging-only Vercel project rather
+than a preview inside the production application project. The repository currently has no
+`.vercel/project.json`, recorded Vercel scope/project ID or stable staging origin, so those values
+remain mandatory operator-confirmed preconditions and are not invented in the plan.
+
+The future deployment must explicitly select `vercel.staging.json` through Vercel's documented
+`--local-config` option, pin project identity/scope, and prove the served bundle/header/CSP name
+staging and exclude production. Only after the stable origin exists may staging Supabase Auth receive
+that exact Site URL and redirect entries; broad account/project wildcards are prohibited. Email
+confirmation relies on Site URL, while the Google flow uses `window.location.origin` and remains
+deferred for separate provider review. Signed-out Wave 0 is the completion boundary; test identities
+and all later smoke waves remain separately gated.

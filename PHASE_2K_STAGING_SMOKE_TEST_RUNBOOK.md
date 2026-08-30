@@ -86,6 +86,10 @@ Required outcome:
 - no Edge Function, secret, cron job or automation flag is changed; and
 - unauthenticated page loads make no request to production.
 
+The exact project/origin and Auth sequencing for this checkpoint is defined in
+`PHASE_2K_STAGING_APP_DEPLOYMENT_RUNBOOK.md`. That runbook is designed but not approved for
+execution; no staging Vercel project or stable origin is currently recorded.
+
 ### Checkpoint C — identity and fixture mutation
 
 Requires a fresh backup/RPO confirmation and explicit approval for the exact staging rows to be
