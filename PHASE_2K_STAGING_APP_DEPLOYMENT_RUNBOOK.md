@@ -1,6 +1,6 @@
 # Phase 2K — Staging Application Deployment and Auth Redirect Runbook
 
-Status: **CHECKPOINT D / SIGNED-OUT WAVE 0 COMPLETE — AUTH CONFIGURATION NOT APPROVED**
+Status: **CHECKPOINT E COMPLETE — AUTHENTICATED SMOKE TESTING NOT APPROVED**
 
 Original build-isolation commit: `cd0d5ac9708a9ce693d8cfa4712055b44133016d`
 
@@ -257,8 +257,8 @@ audit artifact were removed after verification. The ignored project link remains
 
 ## 8. Checkpoint E — Supabase staging Auth URL configuration
 
-Requires a separate, action-time approval because it changes cloud Auth settings. It must target
-the Supabase dashboard URL containing `/project/evhiixndiuwwodsouyhf/`.
+This cloud Auth-setting change was separately approved and completed against the Supabase dashboard
+URL containing `/project/evhiixndiuwwodsouyhf/`.
 
 After the stable Vercel origin is known, set on the staging Supabase project only:
 
@@ -278,9 +278,10 @@ project's Site URL. The current Google flow supplies `window.location.origin`; t
 therefore be allowed. Google OAuth remains deferred until the staging provider configuration and
 email template behavior are reviewed separately.
 
-After saving, read back the complete Site URL and redirect list. Refuse if production's application
-origin was removed, copied into staging unnecessarily, or if any wildcard authorizes unrelated
-Vercel projects.
+After saving, the operator refreshed and read back the complete configuration. The Site URL matched
+exactly, the redirect list contained exactly the two entries above, and the dashboard reported
+`Total URLs: 2`. No production origin was present or changed, and no wildcard covers another Vercel
+project. Providers, email templates and every database setting remained unchanged.
 
 ## 9. Checkpoint F — signed-out smoke and handoff
 

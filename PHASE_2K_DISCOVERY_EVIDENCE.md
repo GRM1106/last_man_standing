@@ -2786,3 +2786,23 @@ Signed-out Wave 0 used only the stable staging origin and submitted nothing:
 The local prebuilt output, downloaded Vercel environment file, generated manifests and private audit
 directory were removed. The deployment exists, but staging Supabase Auth Site URL/redirect settings
 remain unchanged and separately gated; no test identity or database row was created.
+
+### Staging Auth URL configuration
+
+The operator separately approved changing only Auth URL configuration for staging project
+`evhiixndiuwwodsouyhf`. The pre-change readback showed Site URL `http://localhost:3000` and no
+redirect URLs; no production origin was present.
+
+The saved and refreshed configuration was read back as:
+
+| Setting | Exact value |
+|---|---|
+| Site URL | `https://last-man-standing-staging.vercel.app/` |
+| Redirect URL 1 | `https://last-man-standing-staging.vercel.app` |
+| Redirect URL 2 | `https://last-man-standing-staging.vercel.app/**` |
+| Dashboard total | 2 redirect URLs |
+
+No broad account wildcard was added. No provider, email template, database, production, Vercel
+deployment, variable, secret, cron, Git link or pushed code changed during this checkpoint. No auth
+form was submitted and no identity or database row was created. Google OAuth provider validation
+and authenticated staging smoke tests remain separately gated.
