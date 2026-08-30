@@ -2600,3 +2600,22 @@ I `0`, J `10`; every row has the expected nine-column shape and no schema is `UN
 The Phase 2K database migration is **complete on empty staging only**. This does not authorize or
 perform any production contact, Edge Function deployment, secret configuration, cron setup,
 automation enablement, UI deployment or git push. Those remain separately gated.
+
+## 14. Staging application smoke-test design
+
+Recorded 2026-08-30 under operator approval to design only. No database was changed, no application
+or function was deployed, no secret or cron setting was configured, production was not contacted,
+and no code was pushed.
+
+`PHASE_2K_STAGING_SMOKE_TEST_RUNBOOK.md` defines gated browser-level validation. The design found a
+material precondition: the current committed browser configuration and Content Security Policy both
+target production `enzdvsppduyqtpdeseyh`. There is no recorded staging application origin, and empty
+staging has no Auth users or football data. Running the application unchanged would therefore test
+production rather than staging.
+
+The runbook requires a reviewed staging-specific build/configuration mechanism, a named staging-only
+application origin, staging Auth redirect configuration, and separate approval for exact test
+identities and rows. It divides the smoke test into no-write page/security checks, authentication and
+profile-trigger checks, admin/player authorization, and one draft-pot membership path. Pick, result,
+review, provider, automation and scheduler flows remain blocked until a separate safe football-data
+and deployment plan exists. Production and the requested UI redesign remain separate decisions.
