@@ -2806,3 +2806,19 @@ No broad account wildcard was added. No provider, email template, database, prod
 deployment, variable, secret, cron, Git link or pushed code changed during this checkpoint. No auth
 form was submitted and no identity or database row was created. Google OAuth provider validation
 and authenticated staging smoke tests remain separately gated.
+
+### Wave 1 email-authentication design
+
+Under design-only authority, the staging smoke-test runbook now defines an exact Wave 1A for one
+disposable email player. The plan records the identity privately, confirms the staging origin/ref
+and zero-row baseline before signup, exercises a single email registration, handles confirmation as
+an observed branch, proves one Auth user maps to exactly one non-admin/unapproved profile, checks
+admin denial, sign-out and repeat sign-in, and then stops. Google OAuth, administrator creation,
+additional identities, pots and invalid-input requests remain outside this wave.
+
+Cleanup is independently gated. Its planned operation is deletion of the exact staging Auth user
+through Auth user management after proving that the UUID owns no row beyond its profile. The
+profile's `ON DELETE CASCADE` relationship is then verified rather than bypassed with a direct
+delete. A retained profile, unexpected dependent row or changed baseline is a stop condition.
+No identity was created, no form was submitted and no external setting or database was changed
+during this design step.

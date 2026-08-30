@@ -87,8 +87,11 @@ Required outcome:
 - unauthenticated page loads make no request to production.
 
 The exact project/origin and Auth sequencing for this checkpoint is defined in
-`PHASE_2K_STAGING_APP_DEPLOYMENT_RUNBOOK.md`. That runbook is designed but not approved for
-execution; no staging Vercel project or stable origin is currently recorded.
+`PHASE_2K_STAGING_APP_DEPLOYMENT_RUNBOOK.md`. Checkpoint B is complete for the isolated Vercel
+project `last-man-standing-staging`: the stable origin is
+`https://last-man-standing-staging.vercel.app`, signed-out Wave 0 passed, and the staging Auth Site
+URL and two exact redirect entries were saved and read back. This does not authorize an
+authenticated test or any further deployment.
 
 ### Checkpoint C — identity and fixture mutation
 
@@ -243,3 +246,99 @@ that picks, match processing, automation, scheduler operation or production depl
 This runbook does not approve the visual redesign requested by the operator. UI redesign should be
 a separate local branch of work after the staging-target mechanism is safe, with accessibility,
 responsive and regression testing before any staging deployment.
+
+## 8. Exact Wave 1A plan — one disposable email player
+
+This section is a design only. It does not authorize signup, email confirmation, sign-in, Auth-user
+deletion or any other write. Each mutation phase requires a new explicit approval.
+
+### 8.1 Scope and private identity record
+
+Wave 1A uses exactly one purpose-created email address controlled by the operator. Before signup,
+record the exact email address, intended first and last names, cleanup owner and retention decision
+in an owner-only evidence file outside every Git work tree. Do not put the address, password, Auth
+user ID, confirmation link, access token or session contents in this repository or chat.
+
+Use a unique password generated for this staging account and stored in the operator's password
+manager. Do not reuse a real-player or production password. Leave the optional phone field empty.
+The identity must not be promoted, approved, assigned to a pot or retained by default: the selected
+disposition for Wave 1A is deletion after the approved checks.
+
+Immediately before signup, confirm all of the following:
+
+- the Git work tree is clean at the reviewed commit;
+- the browser origin is exactly `https://last-man-standing-staging.vercel.app/`;
+- the page configuration and any Supabase request name only staging ref `evhiixndiuwwodsouyhf`;
+- production ref `enzdvsppduyqtpdeseyh` is absent;
+- a fresh read-only check finds zero `auth.users` and zero `public.profiles`; and
+- the latest accepted staging recovery point is recorded and still applicable.
+
+Any failure stops the run before a form is submitted.
+
+### 8.2 Approved-path test sequence
+
+After a separate execution approval naming the privately recorded identity:
+
+1. Open the stable staging origin in a clean browser context and verify it starts signed out.
+2. Select email registration. Enter the recorded first name, last name, email and unique password;
+   leave phone empty. Submit exactly once. Do not click Google.
+3. Record the sanitized user-facing result. If Supabase returns an immediate session, continue at
+   step 5. If the page says confirmation is required, continue at step 4. Any other outcome stops.
+4. Open only the confirmation message for this disposable address. Before following its link,
+   verify the destination belongs to the staging Supabase project and returns to the exact stable
+   staging origin. Do not paste or record the link. Follow it once.
+5. Confirm the authenticated browser reaches `/waiting.html`, displays the supplied first name,
+   shows no Admin link, and makes no request to production.
+6. Run the approved read-only verification. Require exactly one matching `auth.users` row and one
+   matching `public.profiles` row sharing the same UUID. Require `approved=false`,
+   `is_admin=false`, the supplied names, the disposable email, and `mobile_number is null`.
+7. Open `/admin.html` directly. Require the access-denied state and no player list or admin data.
+8. Sign out. Require return to `/`, then directly open `/waiting.html` and `/admin.html`; both must
+   return to `/` without exposing protected content.
+9. Sign in once with the same email and password. Require `/waiting.html` again and re-run the
+   read-only check: still exactly one Auth user and one profile, with no duplicate profile.
+10. Sign out again and stop. Do not approve the player, create an administrator, create a pot or
+    proceed to Wave 2.
+
+This Wave deliberately does not test an invalid or weak-password submission: that would be another
+Auth request with rate-limit and account-enumeration implications. It may be designed separately
+after the basic path succeeds.
+
+### 8.3 Stop conditions
+
+In addition to section 5, stop immediately if the form would be submitted more than once, an email
+or redirect names an unexpected origin, signup produces no profile or more than one profile, the
+profile values differ from the submitted non-sensitive fields, the account becomes approved or
+admin, `/admin.html` exposes protected content, sign-out leaves a usable session, or repeat sign-in
+changes either row count.
+
+Do not repair a failed run manually. Preserve sanitized evidence, leave the exact identity in place,
+and obtain a diagnosis/cleanup decision.
+
+### 8.4 Cleanup plan — separately approved
+
+Cleanup is performed only after a distinct approval naming the privately recorded Auth user UUID
+and email. First prove that the UUID owns no row outside `public.profiles`. Then delete that exact
+user through the staging Supabase Authentication user-management UI. The foreign key
+`public.profiles.id references auth.users(id) on delete cascade` is expected to remove the matching
+profile; no direct profile delete is planned.
+
+After deletion, require read-only proof that the exact UUID and email are absent from both
+`auth.users` and `public.profiles`, total counts for both tables have returned to zero, no other
+application row changed, the Phase 2J automation rows remain disabled, migration history is
+unchanged, and the security/ACL postcheck still passes. If the profile remains, stop: do not issue a
+manual delete without a new diagnosis and approval.
+
+### 8.5 Evidence boundary and approvals still required
+
+The owner-only evidence bundle should contain timestamps, reviewed commit, origin, sanitized
+screenshots, request-origin summary, pre/post counts and private identity/UUID record. Repository
+evidence may state only pass/fail facts and counts.
+
+Two future approvals remain mandatory:
+
+1. execute signup and the read-only Wave 1A checks for the exact privately recorded identity; and
+2. delete that exact Auth user and verify cleanup.
+
+Neither approval permits Google OAuth, administrator provisioning, additional identities, database
+editing, production contact, deployment, provider/secret/cron changes or Git push.
