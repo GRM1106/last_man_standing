@@ -1,8 +1,10 @@
 # Phase 2K — Staging Application Deployment and Auth Redirect Runbook
 
-Status: **CHECKPOINT C COMPLETE — DEPLOYMENT INCLUDING REVIEWED `api/fpl` NOT APPROVED**
+Status: **CHECKPOINT D / SIGNED-OUT WAVE 0 COMPLETE — AUTH CONFIGURATION NOT APPROVED**
 
-Pinned source commit: `cd0d5ac9708a9ce693d8cfa4712055b44133016d`
+Original build-isolation commit: `cd0d5ac9708a9ce693d8cfa4712055b44133016d`
+
+Deployed source commit: `976ff0fb38b0d8ea69eff360e67defa0e4d483e0`
 
 Supabase target: staging `evhiixndiuwwodsouyhf` only.
 
@@ -38,8 +40,8 @@ The implementation at the pinned commit provides:
 - a staging-only CSP and visible `X-LMS-Environment: staging` response header; and
 - a target validator that proves bundle/CSP isolation and missing-key refusal.
 
-Creating a bundle does not deploy it. A subsequent approval authorized the non-deploying prebuild
-recorded below; deployment remains unauthorized.
+Creating a bundle does not deploy it. Subsequent approvals authorized the recorded prebuild and the
+staging-only Checkpoint D deployment; Auth configuration remains unauthorized.
 
 ## 2. Selected topology
 
@@ -58,7 +60,7 @@ The confirmed identity is:
 | Vercel scope ID | `team_I4aliqhGtzdQ2j0U5RqB8ROI` |
 | Vercel project name | `last-man-standing-staging` |
 | Vercel project ID | `prj_7e9MI9tYTLrSlSrdmaXWu2oIs6ZV` |
-| Stable staging origin | **not created; remains unknown** |
+| Stable staging origin | `https://last-man-standing-staging.vercel.app` |
 | Supabase project ref | must equal `evhiixndiuwwodsouyhf` |
 | Source commit | must equal the pinned commit or a separately reviewed successor |
 | Staging build policy | `vercel.staging.json` SHA-256 at execution time |
@@ -199,16 +201,15 @@ must explicitly authorize creation of this reviewed function in the isolated sta
 
 ## 7. Checkpoint D — staging-only deployment
 
-Not approved by this runbook design. When separately approved, deploy only to the dedicated staging
-project with:
+This checkpoint was separately approved and completed. The deployment used only the dedicated
+staging project with:
 
 - the recorded project selector and team scope;
 - `--local-config vercel.staging.json`;
 - the staging project's stable environment; and
 - no Git push or production-project alias operation.
 
-The CLI command must be assembled from values returned by Vercel; this document deliberately does
-not invent the scope, project ID or final domain.
+The command used the confirmed values returned by Vercel; none was invented.
 
 Immediately after deployment, before Auth configuration:
 
@@ -222,6 +223,38 @@ Immediately after deployment, before Auth configuration:
 
 This is Wave 0 only and must create no database row.
 
+The exact approved source was clean commit
+`976ff0fb38b0d8ea69eff360e67defa0e4d483e0`; `vercel.staging.json` SHA-256 was
+`13165abd7c7ef54a3954938f181eacfc4d519d920339ad614299192d17ad1150`. Two
+independent prebuilds differed only in Vercel's per-run `builds.json` and
+`diagnostics/cli_traces.json`. The remaining 23 stable/deployable relative-path/hash rows were
+byte-identical, with manifest SHA-256
+`9dca2ab2bf768b8ebf0b94cbf68deaee7c8649f27d7a4977456d86bc387420b0`.
+This corrects the earlier aggregate-digest method, which included each output directory's path and
+therefore could not be compared across directories.
+
+The prebuilt deployment exited `0`, reached `READY`, and created deployment
+`dpl_Fjh9vjEXaPY8RuXWiDTL1UnH2orR`. Vercel assigned the immutable deployment URL
+`https://last-man-standing-staging-3bdqaixi5-grm1106s-projects.vercel.app` and stable alias
+`https://last-man-standing-staging.vercel.app`. No Git repository was linked.
+
+Signed-out Wave 0 against the stable alias passed without form submission:
+
+| Check | Result |
+|---|---|
+| Root response | `200` |
+| `X-LMS-Environment` | `staging` |
+| CSP staging HTTPS / WebSocket origins | present / present |
+| Production ref in headers or HTML | 0 |
+| Rendered title | `Last Man Standing — Register` |
+| Browser requests | 5; all same-origin |
+| Production / Supabase / FPL requests | 0 / 0 / 0 |
+| Browser warnings/errors | 0 |
+| Forms submitted | 0 |
+
+The local prebuilt output, downloaded Vercel environment file, generated manifests and private
+audit artifact were removed after verification. The ignored project link remains.
+
 ## 8. Checkpoint E — Supabase staging Auth URL configuration
 
 Requires a separate, action-time approval because it changes cloud Auth settings. It must target
@@ -231,11 +264,11 @@ After the stable Vercel origin is known, set on the staging Supabase project onl
 
 | Setting | Exact planned value |
 |---|---|
-| Site URL | `https://<operator-confirmed-staging-domain>/` |
-| Additional redirect | `https://<operator-confirmed-staging-domain>` |
-| Additional redirect | `https://<operator-confirmed-staging-domain>/**` |
+| Site URL | `https://last-man-standing-staging.vercel.app/` |
+| Additional redirect | `https://last-man-standing-staging.vercel.app` |
+| Additional redirect | `https://last-man-standing-staging.vercel.app/**` |
 
-Replace the placeholder only with the exact origin recorded after deployment. Do not add a broad
+These values use the exact stable origin recorded after deployment. Do not add a broad
 `*.vercel.app` or account-wide wildcard. Supabase recommends exact redirect URLs for stable
 environments; wildcards are appropriate only where preview-domain variability is intentionally
 accepted.

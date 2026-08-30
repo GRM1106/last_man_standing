@@ -2742,3 +2742,47 @@ The temporary output, downloaded `.vercel/.env.production.local` and generated p
 were removed. Nothing was deployed or contacted at the live FPL service. The code is technically
 validated for possible staging inclusion, but the act of creating this Vercel function remotely
 still requires explicit deployment approval.
+
+### Staging Vercel deployment and signed-out Wave 0
+
+The preceding deployment gate is superseded by the operator's exact approval for clean commit
+`976ff0fb38b0d8ea69eff360e67defa0e4d483e0`, isolated Vercel project
+`prj_7e9MI9tYTLrSlSrdmaXWu2oIs6ZV`, scope `grm1106s-projects`, staging config SHA-256
+`13165abd7c7ef54a3954938f181eacfc4d519d920339ad614299192d17ad1150`, and the reviewed GET-only
+`api/fpl` function. Auth/database changes, production, Git linking/push, additional variables,
+secrets and cron remained prohibited.
+
+The pre-deployment reproduction check exposed a verification-method defect rather than an artifact
+change: the earlier aggregate digest included absolute output paths, so builds in different
+directories could not match. Two independent builds then proved every stable/deployable file
+byte-identical by normalized relative path and SHA-256. Only Vercel's per-run `builds.json` and
+`diagnostics/cli_traces.json` differed. The 23-row stable manifest SHA-256 was
+`9dca2ab2bf768b8ebf0b94cbf68deaee7c8649f27d7a4977456d86bc387420b0`.
+
+The exact prebuilt deployment exited `0`:
+
+| Field | Result |
+|---|---|
+| Deployment ID | `dpl_Fjh9vjEXaPY8RuXWiDTL1UnH2orR` |
+| Ready state / target | `READY` / staging project's Production environment |
+| Stable staging origin | `https://last-man-standing-staging.vercel.app` |
+| Immutable deployment URL | `https://last-man-standing-staging-3bdqaixi5-grm1106s-projects.vercel.app` |
+| Git integration | not linked |
+
+Signed-out Wave 0 used only the stable staging origin and submitted nothing:
+
+| Check | Result |
+|---|---|
+| Root HTTP response | `200` |
+| Staging header | one; correct |
+| Staging HTTPS / WebSocket CSP origins | one / one |
+| Production ref in headers/HTML | 0 |
+| Rendered page | `Last Man Standing — Register` |
+| Browser requests | 5; every origin was the staging Vercel origin |
+| Production / Supabase / FPL requests | 0 / 0 / 0 |
+| Browser warnings/errors | 0 |
+| Forms submitted | 0 |
+
+The local prebuilt output, downloaded Vercel environment file, generated manifests and private audit
+directory were removed. The deployment exists, but staging Supabase Auth Site URL/redirect settings
+remain unchanged and separately gated; no test identity or database row was created.
