@@ -1,6 +1,6 @@
 # Phase 2K — Staging Application Deployment and Auth Redirect Runbook
 
-Status: **CHECKPOINT B PARTIAL — PROJECT CREATED AND LOCALLY LINKED; NOT DEPLOYED**
+Status: **CHECKPOINT B COMPLETE — CHECKPOINT C BLOCKED BY PACKAGED FUNCTION; NOT DEPLOYED**
 
 Pinned source commit: `cd0d5ac9708a9ce693d8cfa4712055b44133016d`
 
@@ -22,9 +22,9 @@ No dedicated staging project existed.
 
 Under separate operator approval, the empty project `last-man-standing-staging` was created and this
 checkout was linked to it. The ignored local `.vercel/project.json` was inspected immediately and
-matched the recorded staging project and scope IDs below. No Git repository was linked, no variable
-was configured, no deployment or domain was created, and the production project was not opened or
-changed. Vercel CLI also created a local `.env.local` containing a temporary OIDC token as an
+matched the recorded staging project and scope IDs below. No Git repository was linked, no
+deployment or domain was created, and the production project was not opened or changed. Vercel CLI
+also created a local `.env.local` containing a temporary OIDC token as an
 unrequested side effect; that new file was removed immediately without displaying its value. The
 CLI-added broad `.env*` ignore was rejected because it would hide the tracked example files; only
 `.vercel` was added to `.gitignore`, committed at
@@ -38,7 +38,8 @@ The implementation at the pinned commit provides:
 - a staging-only CSP and visible `X-LMS-Environment: staging` response header; and
 - a target validator that proves bundle/CSP isolation and missing-key refusal.
 
-Creating a bundle does not deploy it. This document authorizes neither action.
+Creating a bundle does not deploy it. A subsequent approval authorized the non-deploying prebuild
+recorded below; deployment remains unauthorized.
 
 ## 2. Selected topology
 
@@ -81,6 +82,9 @@ Configure the variable only on the staging Vercel project and only for the envir
 stable staging deployment. A missing or malformed value must make the build fail. Do not link a
 team-shared variable also used by production.
 
+This variable is now configured as type `Config` in the Production environment of the staging-only
+Vercel project. Its value is not recorded. No other remote variable was added.
+
 ## 4. Checkpoint A — local identity and artifact proof
 
 Run before contacting Vercel:
@@ -99,8 +103,8 @@ Record counts and hashes only. Do not commit the staging key or built bundle.
 
 ## 5. Checkpoint B — Vercel project identification
 
-Read-only discovery, empty-project creation and local linking were separately approved and completed.
-Public-key configuration and deployment remain unapproved.
+Read-only discovery, empty-project creation, local linking and the single public-key configuration
+were separately approved and completed. Deployment remains unapproved.
 
 The operator must:
 
@@ -108,7 +112,8 @@ The operator must:
 2. prove that the selected project is not the production application project;
 3. create or select the dedicated staging project;
 4. record its exact project ID, project name and scope privately;
-5. configure the staging public-key variable only on that project — **not yet performed**;
+5. configure the staging public-key variable only on that project — **complete**: Production
+   environment, type `Config`, value not recorded;
 6. leave Git auto-deployment disabled unless separately approved; and
 7. confirm that no domain assigned to the production application is attached.
 
@@ -136,6 +141,32 @@ environment. Verify:
 
 Stop and obtain a new explicit mutation approval containing the exact project ID/name, scope,
 stable-domain expectation, source commit and configuration hash.
+
+The approved non-deploying prebuild ran at clean commit
+`9316d76838cc756449966571798f0cc2cef2cfe1` with Vercel CLI `59.10.0`, the confirmed staging project
+ID and scope, its Production environment, and explicit `vercel.staging.json`. It exited `0` after
+invoking `build:staging`. The private output contained 25 files / 413,300 bytes; its path-sorted
+file-hash digest was `952bd72c997750e3eabe6ac47ff6f1db617d4ffee1dc66e82f8b9797d424c02a`,
+and generated `config.json` SHA-256 was
+`056244fcdaf7deceb0879e162290edaf042b82a32f3ea8f290983f4ea10603dd`.
+
+Target-isolation checks passed: four staging-ref occurrences, zero production-ref occurrences,
+staging response header present, staging HTTPS and WebSocket CSP origins present, and production ref
+absent from policy. Build logs contained zero secret-value patterns. One literal `sb_secret_` marker
+was traced to the official Supabase client's key-type detector rather than any credential value.
+
+The checkpoint nevertheless **failed closed** because the artifact packages one Vercel serverless
+function, `api/fpl`, as four files under `functions/api/fpl.func`. The runbook requires no function
+to be introduced without separate approval. That route is an existing unauthenticated, cached,
+read-only compatibility proxy for fixed Fantasy Premier League upstream URLs; its presence is not a
+new source-code change, but deploying the empty staging project would create a remote function and
+therefore exceed the current authorization. No cron definition was present. Deployment is blocked
+until the operator separately chooses and approves either including this reviewed compatibility
+function or a validated static-only staging treatment.
+
+Vercel temporarily downloaded `.vercel/.env.production.local` and generated two package manifests
+for this local build. All three were removed after validation; only the ignored project link and
+Vercel README remain. The private build output is temporary evidence and was not deployed.
 
 ## 7. Checkpoint D — staging-only deployment
 

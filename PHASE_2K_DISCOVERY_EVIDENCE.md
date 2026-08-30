@@ -2665,7 +2665,7 @@ The operator then approved creation of an empty, separate staging project and lo
 | Scope ID | `team_I4aliqhGtzdQ2j0U5RqB8ROI` |
 | Local link | `.vercel/project.json`, Git-ignored |
 | Git integration | not linked |
-| Environment variables | none configured remotely |
+| Environment variables | none at creation; superseded by the separately approved configuration below |
 | Deployment / stable origin | none created; origin remains unknown |
 
 Vercel CLI created `.env.local` with a temporary OIDC token while linking, despite variable/secret
@@ -2674,3 +2674,38 @@ printing its value. Its broad `.env*` ignore rule was also removed because its o
 hidden `.env.example` and `.env.staging.example`; only `.vercel` remains ignored, committed at
 `425a87c3abc412bf53d512ac82bf20aeb7562d51`. Both example files remain trackable. No deployment,
 Auth-setting or database change, production mutation, secret/cron configuration or push occurred.
+
+### Staging public configuration and non-deploying prebuild
+
+Under separate operator approval, Vercel project `last-man-standing-staging` received exactly one
+Production-environment variable: `LMS_STAGING_SUPABASE_PUBLISHABLE_KEY`, type `Config`. Its value is
+not recorded. No other remote variable, Git integration, deployment or domain was created.
+
+The subsequently approved local prebuild explicitly selected `vercel.staging.json`, the confirmed
+staging project ID and scope, and that project's Production environment. It ran at clean commit
+`9316d76838cc756449966571798f0cc2cef2cfe1`; Vercel CLI `59.10.0` exited `0` after invoking
+`build:staging`.
+
+| Check | Result |
+|---|---|
+| Files / bytes | 25 / 413,300 |
+| Path-sorted file-hash digest | `952bd72c997750e3eabe6ac47ff6f1db617d4ffee1dc66e82f8b9797d424c02a` |
+| Generated policy SHA-256 | `056244fcdaf7deceb0879e162290edaf042b82a32f3ea8f290983f4ea10603dd` |
+| Staging / production ref occurrences | 4 / 0 |
+| Staging header and HTTPS/WebSocket CSP | present |
+| Production ref in policy | absent |
+| Secret-value patterns in logs | 0 |
+| Cron definitions | 0 |
+| Packaged Vercel functions | **1 — `api/fpl`** |
+
+The single literal `sb_secret_` marker in browser output is the official Supabase client's key-type
+detector, not a credential value. The target-isolation checks passed, but Checkpoint C failed closed:
+the artifact contains four files under `functions/api/fpl.func`. Although this is the existing
+read-only FPL compatibility proxy rather than a new source change, deploying it into the empty
+staging project would create a serverless function, which was expressly outside the approval.
+
+The downloaded `.vercel/.env.production.local` and two generated package manifests were removed;
+only the ignored project link and Vercel README remain. Nothing was deployed. A separate operator
+decision is required between approving the reviewed compatibility function and designing a
+validated static-only staging treatment. Auth/database settings, production, additional variables,
+secrets, cron and Git remained unchanged.
