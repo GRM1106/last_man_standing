@@ -1,6 +1,6 @@
 # Phase 2K — Staging Application Deployment and Auth Redirect Runbook
 
-Status: **CHECKPOINT B COMPLETE — CHECKPOINT C BLOCKED BY PACKAGED FUNCTION; NOT DEPLOYED**
+Status: **CHECKPOINT C COMPLETE — DEPLOYMENT INCLUDING REVIEWED `api/fpl` NOT APPROVED**
 
 Pinned source commit: `cd0d5ac9708a9ce693d8cfa4712055b44133016d`
 
@@ -136,7 +136,8 @@ environment. Verify:
 - bundle contains staging ref and not production ref;
 - response policy contains `X-LMS-Environment: staging`;
 - CSP `connect-src` contains staging HTTPS/WebSocket and not production;
-- no serverless function or cron definition is introduced; and
+- no serverless function other than the separately reviewed `api/fpl` is packaged, and no cron
+  definition is introduced; and
 - the final command names the recorded Vercel project ID/name, scope and `-A vercel.staging.json`.
 
 Stop and obtain a new explicit mutation approval containing the exact project ID/name, scope,
@@ -167,6 +168,34 @@ function or a validated static-only staging treatment.
 Vercel temporarily downloaded `.vercel/.env.production.local` and generated two package manifests
 for this local build. All three were removed after validation; only the ignored project link and
 Vercel README remain. The private build output is temporary evidence and was not deployed.
+
+### Superseding `api/fpl` review and clean-commit prebuild
+
+The preceding function blocker is resolved technically but not an authorization to deploy. A
+read-only review confirmed that `api/fpl` reads no environment value or database, derives no URL
+from the request, and calls only two paths beneath the fixed
+`https://fantasy.premierleague.com/api` origin. It validates and projects the upstream response,
+uses bounded timeout/retry behavior, returns sanitized errors and adds an explicit cache policy.
+The review found one avoidable exposure: non-GET methods previously initiated the same upstream
+fetch, while such requests need not receive normal GET caching.
+
+Commit `880bc75fc6af2757786fac479eec4b97e2eb80b3` now permits GET only. Every other method returns
+`405`, sets `Allow: GET`, and exits before calling the provider. Eleven focused mocked tests and the
+full 76-test/build suite passed without live FPL contact.
+
+The final non-deploying Vercel prebuild ran from that exact clean commit with the confirmed staging
+project/scope, its Production environment and explicit `vercel.staging.json`. Pull and build both
+exited `0`. The private output contained 25 files / 413,450 bytes; its path-sorted file-hash digest
+was `2c4769151c14d7cc38673645a0bcb779276fd93ecf8484c33079c576796628ea`.
+Generated `config.json` retained SHA-256
+`056244fcdaf7deceb0879e162290edaf042b82a32f3ea8f290983f4ea10603dd`.
+
+The packaged function contained exactly one GET guard, one `Allow: GET` and one `405` marker. Target
+isolation remained unchanged: staging ref occurrences `4`, production ref occurrences `0`, staging
+header and HTTPS/WebSocket CSP origins present, production ref absent from policy, secret-value
+patterns in logs `0`, and cron definitions `0`. The downloaded local environment file, generated
+manifests and private output were removed after validation. Deployment remains separately gated and
+must explicitly authorize creation of this reviewed function in the isolated staging Vercel project.
 
 ## 7. Checkpoint D — staging-only deployment
 

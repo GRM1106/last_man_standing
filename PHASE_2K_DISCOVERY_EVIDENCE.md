@@ -2709,3 +2709,36 @@ only the ignored project link and Vercel README remain. Nothing was deployed. A 
 decision is required between approving the reviewed compatibility function and designing a
 validated static-only staging treatment. Auth/database settings, production, additional variables,
 secrets, cron and Git remained unchanged.
+
+### `api/fpl` review, correction and final prebuild
+
+The preceding Checkpoint C blocker is superseded technically, not as deployment authorization. A
+read-only review found no credential/environment read, database client, request-derived URL or
+write path. The route calls only fixed Fantasy Premier League endpoints, validates and projects the
+response, bounds timeouts/retries, sanitizes errors and sets a cache policy. Eleven existing mocked
+tests passed without live FPL contact.
+
+The review did find that POST and every other unsupported method performed the same upstream fetch
+as GET. Under separate approval, commit
+`880bc75fc6af2757786fac479eec4b97e2eb80b3` changed the route to accept GET only; other methods now
+return `405` with `Allow: GET` before any provider call. The focused suite remained 11/11 and the
+full suite/build passed 76/76, including production/staging isolation and missing-key refusal.
+
+The final private, non-deploying prebuild was pinned to that exact clean commit:
+
+| Check | Result |
+|---|---|
+| Vercel pull / build | `0` / `0` |
+| Files / bytes | 25 / 413,450 |
+| Path-sorted file-hash digest | `2c4769151c14d7cc38673645a0bcb779276fd93ecf8484c33079c576796628ea` |
+| Generated policy SHA-256 | `056244fcdaf7deceb0879e162290edaf042b82a32f3ea8f290983f4ea10603dd` |
+| Staging / production ref occurrences | 4 / 0 |
+| Packaged GET guard / `Allow: GET` / `405` | 1 / 1 / 1 |
+| Staging header and HTTPS/WebSocket CSP | present |
+| Production ref in policy | absent |
+| Secret-value patterns in logs / cron definitions | 0 / 0 |
+
+The temporary output, downloaded `.vercel/.env.production.local` and generated package manifests
+were removed. Nothing was deployed or contacted at the live FPL service. The code is technically
+validated for possible staging inclusion, but the act of creating this Vercel function remotely
+still requires explicit deployment approval.
