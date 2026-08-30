@@ -102,12 +102,16 @@ describe("FPL serverless proxy", () => {
     expect(response.json).toHaveBeenCalledWith({ error: "Could not reach the FPL feed." });
   });
 
-  it("preserves the existing method-agnostic behavior for unsupported methods", async () => {
-    vi.stubGlobal("fetch", successfulFetch());
+  it("rejects unsupported methods before contacting the provider", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
     const response = responseRecorder();
 
     await handler({ method: "POST" }, response);
 
-    expect(response.status).toHaveBeenCalledWith(200);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.setHeader).toHaveBeenCalledWith("Allow", "GET");
+    expect(response.status).toHaveBeenCalledWith(405);
+    expect(response.json).toHaveBeenCalledWith({ error: "Method not allowed." });
   });
 });

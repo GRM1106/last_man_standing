@@ -1,6 +1,11 @@
 import { fetchFplData, ProviderError } from "../server/fpl-provider.js";
 
 export default async function handler(_request,response){
+  if(_request?.method!=="GET"){
+    response.setHeader("Allow","GET");
+    response.status(405).json({error:"Method not allowed."});
+    return;
+  }
   try{
     const data=await fetchFplData();
     response.setHeader("Cache-Control","s-maxage=900, stale-while-revalidate=3600");
