@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 
 describe("deployment security policy", () => {
   const config = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+  const stagingConfig = JSON.parse(readFileSync(new URL("../vercel.staging.json", import.meta.url), "utf8"));
   const headers = Object.fromEntries(config.headers[0].headers.map(({ key, value }) => [key, value]));
+  const stagingHeaders = Object.fromEntries(stagingConfig.headers[0].headers.map(({ key, value }) => [key, value]));
   const csp = headers["Content-Security-Policy"];
+  const stagingCsp = stagingHeaders["Content-Security-Policy"];
 
   it("uses the bundled production directory", () => {
     expect(config.buildCommand).toBe("npm run build");
@@ -27,6 +30,18 @@ describe("deployment security policy", () => {
     expect(headers["X-Content-Type-Options"]).toBe("nosniff");
     expect(headers["Referrer-Policy"]).toBe("strict-origin-when-cross-origin");
     expect(headers["Permissions-Policy"]).toContain("camera=()");
+  });
+
+  it("keeps staging and production build policies isolated", () => {
+    const productionRef = "enzdvsppduyqtpdeseyh";
+    const stagingRef = "evhiixndiuwwodsouyhf";
+    expect(config.buildCommand).toBe("npm run build");
+    expect(stagingConfig.buildCommand).toBe("npm run build:staging");
+    expect(csp).toContain(productionRef);
+    expect(csp).not.toContain(stagingRef);
+    expect(stagingCsp).toContain(stagingRef);
+    expect(stagingCsp).not.toContain(productionRef);
+    expect(stagingHeaders["X-LMS-Environment"]).toBe("staging");
   });
 
   it("keeps serverless JavaScript compatible with the ESM package runtime", () => {

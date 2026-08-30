@@ -21,6 +21,19 @@ npm run preview   # preview the production build locally
 npm run audit     # dependency security audit
 ```
 
+The normal development and build commands target production. A staging build is deliberately
+fail-closed and requires the staging publishable browser key outside the repository:
+
+```sh
+cp .env.staging.example .env.staging.local
+# Replace the placeholder with the staging sb_publishable_ value.
+npm run build:staging
+```
+
+`vercel.json` is the production deployment policy. `vercel.staging.json` is the separate staging
+policy and permits only the staging Supabase HTTPS/WebSocket origins. Creating either bundle does
+not deploy it. Never put a database password, service-role key or scheduler secret in these files.
+
 ## Supabase setup
 
 > **Phase P1 synchronization safety:** Do not run a second-season, new-season, or

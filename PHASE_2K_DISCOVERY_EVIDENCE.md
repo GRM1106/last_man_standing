@@ -2619,3 +2619,11 @@ identities and rows. It divides the smoke test into no-write page/security check
 profile-trigger checks, admin/player authorization, and one draft-pot membership path. Pick, result,
 review, provider, automation and scheduler flows remain blocked until a separate safe football-data
 and deployment plan exists. Production and the requested UI redesign remain separate decisions.
+
+Checkpoint A was then implemented and locally validated under separate operator approval. The
+normal build remains production; staging uses an explicit compile-time target, requires an external
+staging publishable key, and has a separate staging CSP policy. Temporary builds proved mutual
+exclusion: the production bundle and CSP contain no staging ref, and the staging bundle and CSP
+contain no production ref. A staging build with no key refused. All 75 existing tests plus the new
+deployment-policy assertion passed. No real staging key was stored, no bundle was deployed, and no
+remote system was contacted or changed.

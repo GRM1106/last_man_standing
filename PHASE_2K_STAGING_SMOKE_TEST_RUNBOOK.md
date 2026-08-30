@@ -1,6 +1,6 @@
 # Phase 2K — Staging Application Smoke-Test Runbook
 
-Status: **DESIGNED — NOT READY TO EXECUTE**
+Status: **CHECKPOINT A LOCALLY PROVEN — CHECKPOINTS B–D NOT APPROVED**
 
 Target: staging Supabase project `evhiixndiuwwodsouyhf` only.
 
@@ -64,6 +64,13 @@ Required outcome:
 - a production build still contains only production origins;
 - `npm test`, `npm run build` and the security-config tests pass for both variants; and
 - neither build contains a database password, service-role key or scheduler secret.
+
+Checkpoint A was completed locally on 2026-08-30. `vite.config.js` injects one selected target at
+compile time; production remains the default, while staging requires `LMS_BUILD_TARGET=staging`
+and a supplied `LMS_STAGING_SUPABASE_PUBLISHABLE_KEY`. The target validator proved that each bundle
+contains its own project ref and not the other, the two CSP policies have the same isolation, and a
+staging build without its publishable key refuses. The existing 75 tests and one new deployment
+policy test passed. No bundle was deployed and no real staging key was written to the repository.
 
 ### Checkpoint B — staging application deployment
 
