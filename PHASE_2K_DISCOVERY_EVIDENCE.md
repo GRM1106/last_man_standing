@@ -2822,3 +2822,25 @@ profile's `ON DELETE CASCADE` relationship is then verified rather than bypassed
 delete. A retained profile, unexpected dependent row or changed baseline is a stop condition.
 No identity was created, no form was submitted and no external setting or database was changed
 during this design step.
+
+### Fresh pre-Wave-1 staging backup
+
+Under separately approved read-only authority, a fresh three-part logical backup was taken from
+staging project `evhiixndiuwwodsouyhf` before any test identity was created. The repository was
+clean at `ee1f56aefa320600a8fe3e2023867fa18f782aad`. No database password was supplied; CLI `2.116.0`
+used its temporary login-role path. All three dump commands completed successfully.
+
+| Field | Result |
+|---|---|
+| Resolved directory | `/Users/grantmiller/Documents/LMS-Backups/lms-staging-backup.9Zit9U` |
+| Start / end | `2026-08-30T15:56:42Z` / `2026-08-30T15:56:54Z` |
+| Duration / RPO | 12 seconds / `2026-08-30T15:56:54Z` |
+| `roles.sql` | 370 bytes; SHA-256 `168a95a9c745af5ed4679751f90419ac9dc434240a213b03e32a06d5664c2308` |
+| `schema.sql` | 245,507 bytes; SHA-256 `f5e2960fda9fe2fa4a7fc20ccc7026a66bcac5b42b26320fd687428e570ed7c2` |
+| `data.sql` | 18,941 bytes; SHA-256 `327c0fdb0f7b7f14a18ed148c416d5079b4d86e4262df51de81e88df2625fb35` |
+| Permissions | directory `700`; every dump file `600` |
+
+`pg_dump` repeated its circular-foreign-key warning for `fixture_result_overrides`; it did not
+produce an error, and `data.sql` completed. The known limitation remains that empty staging does
+not exercise populated circular-FK ordering. No account or row was created, and no Auth setting,
+deployment, provider, variable, secret, cron, Git link or production system changed.

@@ -271,7 +271,7 @@ Immediately before signup, confirm all of the following:
 - the page configuration and any Supabase request name only staging ref `evhiixndiuwwodsouyhf`;
 - production ref `enzdvsppduyqtpdeseyh` is absent;
 - a fresh read-only check finds zero `auth.users` and zero `public.profiles`; and
-- the latest accepted staging recovery point is recorded and still applicable.
+- the fresh pre-Wave-1 backup RPO `2026-08-30T15:56:54Z` is recorded and still applicable.
 
 Any failure stops the run before a form is submitted.
 
