@@ -143,7 +143,7 @@ Wave 0 may proceed only after Checkpoints A and B. It creates no database row.
 |---|---|
 | Register player A by email | Auth user created; exactly one matching profile created |
 | Registration validation | Weak/invalid input fails safely without exposing internals |
-| Confirm/sign in | Session established and user reaches waiting page |
+| Confirm/sign in | Session established; the waiting route resolves to the registered/no-pot dashboard |
 | Sign out | Session cleared and protected pages redirect |
 | Repeat sign-in | No duplicate profile is created |
 | Player opens `/admin.html` | Access denied; no player list or admin data returned |
@@ -287,16 +287,19 @@ After a separate execution approval naming the privately recorded identity:
 4. Open only the confirmation message for this disposable address. Before following its link,
    verify the destination belongs to the staging Supabase project and returns to the exact stable
    staging origin. Do not paste or record the link. Follow it once.
-5. Confirm the authenticated browser reaches `/waiting.html`, displays the supplied first name,
-   shows no Admin link, and makes no request to production.
+5. Confirm the authenticated browser briefly reaches `/waiting.html`, then resolves to
+   `/dashboard.html`. Require the registered/no-pot empty state, supplied first name, no Admin link
+   and no request to production. This is the committed behavior: the waiting page redirects when
+   `get_my_dashboard()` returns the player's dashboard object, including for an unapproved player.
 6. Run the approved read-only verification. Require exactly one matching `auth.users` row and one
    matching `public.profiles` row sharing the same UUID. Require `approved=false`,
    `is_admin=false`, the supplied names, the disposable email, and `mobile_number is null`.
 7. Open `/admin.html` directly. Require the access-denied state and no player list or admin data.
 8. Sign out. Require return to `/`, then directly open `/waiting.html` and `/admin.html`; both must
    return to `/` without exposing protected content.
-9. Sign in once with the same email and password. Require `/waiting.html` again and re-run the
-   read-only check: still exactly one Auth user and one profile, with no duplicate profile.
+9. Sign in once with the same email and password. Require the same brief waiting-to-empty-dashboard
+   transition and re-run the read-only check: still exactly one Auth user and one profile, with no
+   duplicate profile.
 10. Sign out again and stop. Do not approve the player, create an administrator, create a pot or
     proceed to Wave 2.
 

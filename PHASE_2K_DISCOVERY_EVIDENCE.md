@@ -2856,3 +2856,35 @@ An independent read-only request to `https://last-man-standing-staging.vercel.ap
 the staging ref and zero occurrences of production ref `enzdvsppduyqtpdeseyh`. No form was
 submitted. The pre-Wave-1 RPO remains `2026-08-30T15:56:54Z`; the preflight is clear for the single
 disposable identity defined by Wave 1A, subject to separate signup authority.
+
+### Wave 1A email authentication execution
+
+Under explicit authority for one privately recorded disposable identity, Wave 1A completed on
+2026-08-31. The operator submitted the staging email-registration form exactly once. Supabase
+required email confirmation; the confirmation destination named only staging ref
+`evhiixndiuwwodsouyhf` and the stable staging application origin. The single-use confirmation token
+was inadvertently pasted into the operator conversation, then immediately consumed successfully;
+it is not recorded here and must not be reused.
+
+The observed application flow briefly displayed `/waiting.html` and then resolved to the empty
+player dashboard. This initially differed from the runbook prose but matches committed behavior:
+`waiting.js` redirects whenever `get_my_dashboard()` returns an object, and the RPC returns the
+current player's object even when `approved=false`. The expectation is corrected in the runbook;
+this was a documentation mismatch, not elevated authorization.
+
+| Check | Result |
+|---|---|
+| Auth users / profiles / UUID-matched rows | 1 / 1 / 1 |
+| Email and submitted-name parity | true |
+| `approved=false` / `is_admin=false` / empty phone | true / true / true |
+| Player dashboard | registered/no-pot empty state; supplied first name shown |
+| Admin navigation | no Admin link |
+| Direct `/admin.html` while signed in | access denied; no player list or controls |
+| Sign-out then direct `/waiting.html` and `/admin.html` | both redirected to `/` |
+| Repeat sign-in | same empty dashboard; still 1 Auth user and 1 profile |
+| Final sign-out | returned to root registration page |
+
+Google OAuth, invalid-input requests, administrator provisioning, additional identities and all
+application fixture data remained untouched. The one Wave 1A Auth user and cascading profile are
+intentionally retained only until the separately approved cleanup. No production system,
+deployment, Auth setting, provider, variable, secret, cron, Git link or pushed code changed.
