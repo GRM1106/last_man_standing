@@ -2844,3 +2844,15 @@ used its temporary login-role path. All three dump commands completed successful
 produce an error, and `data.sql` completed. The known limitation remains that empty staging does
 not exercise populated circular-FK ordering. No account or row was created, and no Auth setting,
 deployment, provider, variable, secret, cron, Git link or production system changed.
+
+### Wave 1A read-only preflight
+
+At `2026-08-30T23:59:21Z`, immediately before any approved signup, the operator confirmed through
+the staging SQL Editor that `auth.users` and `public.profiles` both contained zero rows. The query
+ran in an explicit read-only transaction against project ref `evhiixndiuwwodsouyhf`.
+
+An independent read-only request to `https://last-man-standing-staging.vercel.app/` returned HTTP
+`200`, header `X-LMS-Environment: staging`, title `Last Man Standing — Register`, one occurrence of
+the staging ref and zero occurrences of production ref `enzdvsppduyqtpdeseyh`. No form was
+submitted. The pre-Wave-1 RPO remains `2026-08-30T15:56:54Z`; the preflight is clear for the single
+disposable identity defined by Wave 1A, subject to separate signup authority.
