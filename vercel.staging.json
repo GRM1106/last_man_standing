@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build:staging",
+  "buildCommand": "npm run vercel-build:staging",
   "outputDirectory": "dist",
   "cleanUrls": true,
   "trailingSlash": false,

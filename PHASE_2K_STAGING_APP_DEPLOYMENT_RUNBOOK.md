@@ -132,7 +132,8 @@ that would fall back to root `vercel.json` is prohibited.
 Before the mutation command, obtain a dry/prebuilt artifact using the recorded staging project and
 environment. Verify:
 
-- build command is `npm run build:staging`;
+- build command is `npm run vercel-build:staging`, the guarded staging entry point, which
+  validates the deployment target and then runs `npm run build:staging`;
 - output directory is `dist`;
 - build log identifies the approved commit;
 - bundle contains staging ref and not production ref;
@@ -232,6 +233,21 @@ byte-identical, with manifest SHA-256
 `9dca2ab2bf768b8ebf0b94cbf68deaee7c8649f27d7a4977456d86bc387420b0`.
 This corrects the earlier aggregate-digest method, which included each output directory's path and
 therefore could not be compared across directories.
+
+**Configuration hashes have moved on since that run.** The value above remains the correct record of
+what was approved and deployed at commit `976ff0fb38b0d8ea69eff360e67defa0e4d483e0` and must not be
+edited. Both Vercel configuration files have since changed, because each now names its guarded
+deployment entry point as its build command:
+
+| File | SHA-256 at `976ff0fb` (deployed) | SHA-256 in the working tree |
+|---|---|---|
+| `vercel.staging.json` | `13165abd7c7ef54a3954938f181eacfc4d519d920339ad614299192d17ad1150` | `5e3f1db07173663eda99707057bfa04f8a783077a7bbb2c6be8636545d3955fd` |
+| `vercel.json` | `bb4ee6e078ea2e827ca5d1f767af437f26837852d644edbd61ea597fe721ede0` | `9b57e7a4ed582eca541f248cfd1e1e6f83bfdbe0a6103606540beb7befa9a83c` |
+
+These working-tree values are recorded for orientation only. Checkpoint A step 2 still governs: a
+future run must recompute the hash from the file at its own approved commit and obtain approval
+against that value, never against a value copied from this table. See
+[`DEPLOY_TARGET_GUARD.md`](DEPLOY_TARGET_GUARD.md) for what the entry point validates.
 
 The prebuilt deployment exited `0`, reached `READY`, and created deployment
 `dpl_Fjh9vjEXaPY8RuXWiDTL1UnH2orR`. Vercel assigned the immutable deployment URL

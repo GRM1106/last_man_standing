@@ -16,7 +16,7 @@ Useful checks:
 ```sh
 npm test          # XSS and deployment-policy regression tests
 npm run build     # production bundle in dist/
-npm run check     # tests followed by a production build
+npm run check     # tests followed by the build-target isolation checks
 npm run preview   # preview the production build locally
 npm run audit     # dependency security audit
 ```
@@ -33,6 +33,18 @@ npm run build:staging
 `vercel.json` is the production deployment policy. `vercel.staging.json` is the separate staging
 policy and permits only the staging Supabase HTTPS/WebSocket origins. Creating either bundle does
 not deploy it. Never put a database password, service-role key or scheduler secret in these files.
+
+A build target that contradicts the Vercel project this checkout is linked to is refused rather
+than built, and a deployment must positively prove which project it is going to. Validation is
+built into the deploy commands, so there is no separate checker to remember:
+
+```sh
+npm run deploy:staging       # or deploy:production
+```
+
+Read [`DEPLOY_TARGET_GUARD.md`](DEPLOY_TARGET_GUARD.md) for what the guard checks, what a raw
+`vercel deploy` does, and why production deployment stays blocked until the production Vercel
+project identity is recorded.
 
 ## Supabase setup
 
@@ -163,6 +175,11 @@ Vite bundles `config.js` into the browser assets during each production build. C
 1. Import this GitHub repository in Vercel.
 2. Leave **Framework Preset** set to `Other`.
 3. Vercel reads the build command and `dist` output directory from `vercel.json`.
-4. Select **Deploy**.
+4. Deploy with `npm run deploy:production` rather than a raw `vercel deploy`, so the
+   target is validated locally before anything is uploaded.
+5. Select **Deploy**.
+
+Staging deploys use `vercel.staging.json` and are described in
+[`DEPLOY_TARGET_GUARD.md`](DEPLOY_TARGET_GUARD.md).
 
 Dependencies are pinned in `package.json` and `package-lock.json`. No private environment variables are required; `config.js` contains only the public Supabase project URL and publishable key.
