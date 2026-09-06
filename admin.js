@@ -9,6 +9,7 @@ import {
   renderStandingPick,
 } from "./ui.js";
 import { correctionErrorMessage, filterAdminFixtures, loadAdminFixtureResults, renderAdminFixtureResults, resultScore } from "./fixture-results-ui.js";
+import { syncResultMessage } from "./scheduler-ui.js";
 const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 const loading = document.querySelector("#admin-loading"),
   denied = document.querySelector("#admin-denied"),
@@ -815,9 +816,7 @@ async function syncFplData() {
       body: { source: "admin", season: CURRENT_SEASON },
     });
     if (error) throw error;
-    message.textContent = data?.status === "skipped"
-      ? "Sync skipped safely because another provider run is active."
-      : `Football data sync complete: ${data.ingestion?.teams || 0} clubs and ${data.ingestion?.fixtures || 0} fixtures updated; automation scan finished.`;
+    message.textContent = syncResultMessage(data);
     await loadFixtures();
   } catch (error) {
     message.textContent = `Couldn’t sync FPL data: ${error.message}`;

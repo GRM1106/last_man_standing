@@ -31,9 +31,40 @@ describe("scheduler provider boundary", () => {
 
   it("does not fetch when the database lock reports an overlap", async () => {
     const fetchImpl = vi.fn();
-    const operations = { claim: vi.fn().mockResolvedValue({ acquired: false, run_id: "attempt-2" }), ingestAndScan: vi.fn(), fail: vi.fn() };
+    // Shape returned by claim_lms_provider_run when another run holds the lock.
+    const claim = { acquired: false, run_id: "attempt-2", active_run_id: "run-1", reason: "already_running" };
+    const operations = { claim: vi.fn().mockResolvedValue(claim), ingestAndScan: vi.fn(), fail: vi.fn() };
     await expect(runSchedulerPipeline({ source: "admin", season: "2026/27", operations, fetchOptions: { fetchImpl } })).resolves.toEqual({ status: "skipped", reason: "already_running", runId: "attempt-2" });
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("reports the kill switch as disabled rather than as an overlap", async () => {
+    // claim_lms_provider_run returns this when provider_automation_enabled is false.
+    const fetchImpl = vi.fn();
+    const operations = { claim: vi.fn().mockResolvedValue({ acquired: false, run_id: "attempt-3", reason: "disabled" }), ingestAndScan: vi.fn(), fail: vi.fn() };
+    const result = await runSchedulerPipeline({ source: "scheduler", season: "2026/27", operations, fetchOptions: { fetchImpl } });
+    expect(result).toEqual({ status: "skipped", reason: "disabled", runId: "attempt-3" });
+    expect(result.reason).not.toBe("already_running");
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(operations.ingestAndScan).not.toHaveBeenCalled();
+  });
+
+  it("passes an unrecognised skip reason through without relabelling it", async () => {
+    const operations = { claim: vi.fn().mockResolvedValue({ acquired: false, run_id: "attempt-4", reason: "some_future_reason" }), ingestAndScan: vi.fn(), fail: vi.fn() };
+    await expect(runSchedulerPipeline({ source: "scheduler", season: "2026/27", operations, fetchOptions: { fetchImpl: vi.fn() } }))
+      .resolves.toEqual({ status: "skipped", reason: "some_future_reason", runId: "attempt-4" });
+  });
+
+  it("falls back to a neutral reason when the claim supplies none", async () => {
+    const operations = { claim: vi.fn().mockResolvedValue({ acquired: false, run_id: "attempt-5" }), ingestAndScan: vi.fn(), fail: vi.fn() };
+    const result = await runSchedulerPipeline({ source: "admin", season: "2026/27", operations, fetchOptions: { fetchImpl: vi.fn() } });
+    expect(result).toEqual({ status: "skipped", reason: "unavailable", runId: "attempt-5" });
+    expect(result.reason).not.toBe("already_running");
+  });
+
+  it("keeps display wording out of the scheduler layer", () => {
+    const pipeline = readFileSync(new URL("../server/scheduler-pipeline.js", import.meta.url), "utf8");
+    expect(pipeline).not.toMatch(/Sync skipped|another provider run|automation is disabled/i);
   });
 
   it("retries bounded transient failures", async () => {
