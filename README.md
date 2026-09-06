@@ -46,6 +46,12 @@ Read [`DEPLOY_TARGET_GUARD.md`](DEPLOY_TARGET_GUARD.md) for what the guard check
 `vercel deploy` does, and why production deployment stays blocked until the production Vercel
 project identity is recorded.
 
+Remote Supabase operations are guarded the same way. Edge Function deployment, deletion and
+function secrets go through `npm run supabase:*:staging`, which prove the project and pass an
+explicit `--project-ref`; production is blocked. Local `supabase start`, `stop`,
+`db reset --local` and `functions serve` are unaffected. See
+[`SUPABASE_TARGET_GUARD.md`](SUPABASE_TARGET_GUARD.md).
+
 ## Supabase setup
 
 > **Phase P1 synchronization safety:** Do not run a second-season, new-season, or

@@ -21,7 +21,22 @@ Target reference, only after separate authorization: `evhiixndiuwwodsouyhf`.
 9. Test both kill switches. With provider automation off, scheduled-source simulation must record a safe skip. With competition automation off, ingestion may succeed while the scan reports disabled.
 10. Review evidence and hold a staging go/no-go. Phase 2J does not authorize cron creation. A later staging phase may set `scheduler_expected=true`, enable switches deliberately, create a two-hour cron, observe multiple runs, test disabling, and document platform logs/cost.
 
-Disable/rollback: disable or delete the platform cron first, set both database automation flags false, preserve run history, and leave player/read-only/manual-safe features available. If the Edge Function is faulty, roll it back to the last known version. Database migrations are forward-only; use a reviewed corrective migration, not destructive rollback. Restore only through the approved backup procedure.
+Steps 6 and 7 must be carried out through the guarded repository commands, which prove the
+target and pass an explicit `--project-ref` before invoking the Supabase CLI. Do not run a
+raw `supabase secrets set` or `supabase functions deploy`: both inherit whatever project
+this checkout happens to be linked to.
+
+```sh
+npm run supabase:check:staging                                    # prove the target
+npm run supabase:secrets:set:staging -- --env-file <path outside the repo>
+npm run supabase:deploy:staging -- --dry-run                      # confirm, then re-run without --dry-run
+```
+
+See [`SUPABASE_TARGET_GUARD.md`](SUPABASE_TARGET_GUARD.md) for the secret input mechanism,
+the production block and the link-contradiction rules. The guard is a safety control; it
+does not replace the authorization this runbook requires.
+
+Disable/rollback: disable or delete the platform cron first, set both database automation flags false, preserve run history, and leave player/read-only/manual-safe features available. If the Edge Function is faulty, roll it back to the last known version — on a first deployment there is no earlier version, so the rollback is deletion via `npm run supabase:delete:staging`. Database migrations are forward-only; use a reviewed corrective migration, not destructive rollback. Restore only through the approved backup procedure.
 
 ## Production procedure
 
