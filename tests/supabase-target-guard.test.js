@@ -212,6 +212,63 @@ describe("guarded wrapper", () => {
       .toContain(`functions delete lms-scheduler --project-ref ${STAGING}`);
   });
 
+  it("targets the registered staging project for a database push", () => {
+    const { status, output } = runWrapper(["push-migrations", "staging", "--dry-run"]);
+    expect(status).toBe(0);
+    expect(output).toContain(`db push --project-ref ${STAGING}`);
+    expect(output).not.toContain(PRODUCTION);
+  });
+
+  it("exposes the CLI's own read-only plan and nothing wider", () => {
+    const { status, output } = runWrapper(["push-migrations", "staging", "--plan", "--dry-run"]);
+    expect(status).toBe(0);
+    expect(output).toContain(`db push --project-ref ${STAGING} --dry-run`);
+    // --plan must not smuggle in anything that changes what gets applied.
+    for (const wider of ["--include-all", "--include-roles", "--include-seed", "--db-url", "--linked"]) {
+      expect(output).not.toContain(wider);
+    }
+  });
+
+  it("refuses --plan on any other operation", () => {
+    for (const op of ["deploy-function", "delete-function", "set-secrets", "unset-secrets", "check"]) {
+      expect(runWrapper([op, "staging", "--plan", "--dry-run"]).status, `${op} + --plan`).toBe(1);
+    }
+  });
+
+  it("refuses a production database push on policy", () => {
+    const { status, output } = runWrapper(["push-migrations", "production", "--dry-run"]);
+    expect(status).toBe(1);
+    expect(output).toMatch(/not permitted from this repository/i);
+    expect(output).not.toContain("db push");
+  });
+
+  it("refuses a database push to an unknown environment", () => {
+    for (const env of ["preview", "prod", "", "local"]) {
+      expect(runWrapper(["push-migrations", env, "--dry-run"]).status, env).toBe(1);
+    }
+  });
+
+  it("refuses a database push when the linked project contradicts staging", () => {
+    // Same proof path as every other operation: resolveRemoteTarget runs first.
+    const rootDir = checkout({ ref: PRODUCTION, name: "last-man-standing" });
+    expect(() => resolveRemoteTarget({ environment: "staging", rootDir })).toThrow(/contradicts/i);
+    const unknown = checkout({ ref: UNKNOWN, name: "someone-else" });
+    expect(() => resolveRemoteTarget({ environment: "staging", rootDir: unknown })).toThrow(/contradicts/i);
+  });
+
+  it("cannot have its database-push target overridden by injected arguments", () => {
+    for (const injection of [
+      ["push-migrations", "staging", "--project-ref", PRODUCTION, "--dry-run"],
+      ["push-migrations", "staging", "--db-url", "postgres://x", "--dry-run"],
+      ["push-migrations", "staging", "--include-all", "--dry-run"],
+      ["push-migrations", "staging", "--linked", "--dry-run"],
+    ]) {
+      const { status, output } = runWrapper(injection);
+      expect(status, injection.join(" ")).toBe(1);
+      expect(output).not.toContain(PRODUCTION);
+    }
+  });
+
   it("refuses production from the wrapper", () => {
     const { status, output } = runWrapper(["check", "production"]);
     expect(status).toBe(1);
@@ -255,6 +312,8 @@ describe("guarded wrapper", () => {
       "supabase:delete:staging",
       "supabase:secrets:set:staging",
       "supabase:secrets:unset:staging",
+      "supabase:db:plan:staging",
+      "supabase:db:push:staging",
     ]));
     // Every guarded script routes through the wrapper, and none exposes production mutation.
     for (const name of names) {

@@ -15,6 +15,8 @@
     "test:build-targets": "node scripts/test-build-targets.mjs",
     "supabase:check:staging": "node scripts/supabase-remote.mjs check staging",
     "supabase:check:production": "node scripts/supabase-remote.mjs check production",
+    "supabase:db:plan:staging": "node scripts/supabase-remote.mjs push-migrations staging --plan",
+    "supabase:db:push:staging": "node scripts/supabase-remote.mjs push-migrations staging",
     "supabase:deploy:staging": "node scripts/supabase-remote.mjs deploy-function staging",
     "supabase:delete:staging": "node scripts/supabase-remote.mjs delete-function staging",
     "supabase:secrets:set:staging": "node scripts/supabase-remote.mjs set-secrets staging",

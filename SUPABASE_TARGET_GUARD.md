@@ -2,7 +2,7 @@
 
 Companion to [`DEPLOY_TARGET_GUARD.md`](DEPLOY_TARGET_GUARD.md), which does the same job
 for Vercel. This one covers **remote Supabase operations**: Edge Function deployment,
-Edge Function deletion, and function secrets.
+Edge Function deletion, function secrets, and database migrations.
 
 | Environment | Project ref | Remote operations from this repo |
 |---|---|---|
@@ -29,6 +29,8 @@ npm run supabase:deploy:staging                 # deploy lms-scheduler to stagin
 npm run supabase:delete:staging                 # rollback: remove lms-scheduler from staging
 npm run supabase:secrets:set:staging   -- --env-file <path>
 npm run supabase:secrets:unset:staging -- --secret LMS_SCHEDULER_SECRET
+npm run supabase:db:plan:staging                # read-only: which migrations would apply
+npm run supabase:db:push:staging                # apply pending migrations to staging
 ```
 
 Add `-- --dry-run` to any of them to validate the target and print the exact command
@@ -41,6 +43,25 @@ npm run supabase:deploy:staging -- --dry-run
 
 Validation runs **inside** these commands, before the Supabase CLI is invoked. There is
 no separate checker to remember.
+
+### Migrations
+
+Always review the pending set before applying it. `supabase:db:plan:staging` runs the
+CLI's own `--dry-run`, which connects read-only and prints exactly what would apply:
+
+```sh
+npm run supabase:db:plan:staging
+# Would push these migrations:
+#  • 20260824000700_lms_phase_2k_persist_failed_automation_runs.sql
+npm run supabase:db:push:staging
+```
+
+`supabase db push` accepts `--project-ref` directly, so the push is targeted explicitly
+by the registered ref rather than by the ambient link — the same mechanism as every other
+guarded operation. The wrapper builds the argument list itself, so `--include-all`,
+`--include-roles`, `--include-seed`, `--db-url` and `--linked` cannot be injected to widen
+what gets applied or to retarget the push; a test asserts each is rejected. `--plan` is
+accepted only for this operation.
 
 ## How the target is proven
 
@@ -135,9 +156,9 @@ npx supabase db reset --local
 npx supabase functions serve --env-file <local env file>
 ```
 
-Never pass `--linked` or `--project-ref` to `db reset` or `db push`: those target a remote
-project. `db push` is not exposed as a guarded command because no remote migration is due;
-the validator it would use already exists if that changes.
+Never pass `--linked` or `--project-ref` to `db reset`: those target a remote project.
+Remote migrations do have a guarded command — `supabase:db:push:staging` above — so a raw
+`supabase db push` should not be used.
 
 ## What this guard is, and is not
 

@@ -4,7 +4,10 @@
 //   node scripts/supabase-remote.mjs <operation> <environment> [options]
 //
 //   operations : check | deploy-function | delete-function | set-secrets | unset-secrets
+//                push-migrations
 //   options    : --dry-run            validate and print the command, run nothing
+//                --plan               push-migrations only; runs the CLI's own read-only
+//                                     --dry-run so the pending set can be reviewed
 //                --env-file <path>    set-secrets only; where the values are read from
 //                --secret <NAME>      unset-secrets only; repeatable
 //
@@ -30,7 +33,7 @@ import {
 } from "./lms-supabase-target.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const OPERATIONS = ["check", "deploy-function", "delete-function", "set-secrets", "unset-secrets"];
+const OPERATIONS = ["check", "deploy-function", "delete-function", "set-secrets", "unset-secrets", "push-migrations"];
 const DEFAULT_FUNCTION = EDGE_FUNCTIONS[0];
 
 function fail(message) {
@@ -47,7 +50,7 @@ function usage(problem) {
       `  Environments : ${SUPABASE_ENVIRONMENTS.join(", ")}`,
       "",
       "  Usage: node scripts/supabase-remote.mjs <operation> <environment> [--dry-run]",
-      "                                          [--env-file <path>] [--secret <NAME>]",
+      "                                          [--plan] [--env-file <path>] [--secret <NAME>]",
     ].join("\n"),
   );
 }
@@ -59,17 +62,20 @@ const [operation, environment] = positional;
 let envFile = null;
 const secrets = [];
 let dryRun = false;
+let plan = false;
 
 for (let index = 0; index < argv.length; index += 1) {
   const arg = argv[index];
   if (!arg.startsWith("--")) continue;
   if (arg === "--dry-run") dryRun = true;
+  else if (arg === "--plan") plan = true;
   else if (arg === "--env-file") envFile = argv[++index] ?? null;
   else if (arg === "--secret") secrets.push(argv[++index] ?? "");
   else usage(`unsupported option "${arg}"`);
 }
 
 if (!OPERATIONS.includes(operation)) usage(`unknown operation "${operation ?? "(none)"}"`);
+if (plan && operation !== "push-migrations") usage('--plan applies only to push-migrations');
 if (!SUPABASE_ENVIRONMENTS.includes(environment)) usage(`unknown environment "${environment ?? "(none)"}"`);
 
 // ---- prove the target before anything else ---------------------------------------
@@ -142,6 +148,12 @@ switch (operation) {
   case "set-secrets":
     cliArgs = ["secrets", "set", "--project-ref", target.ref, "--env-file", secretsEnvFile()];
     break;
+  case "push-migrations":
+    // `supabase db push` accepts --project-ref directly, so the registered ref targets
+    // the push explicitly rather than relying on the ambient link. --dry-run is the
+    // CLI's own read-only plan: it prints what would apply and changes nothing.
+    cliArgs = ["db", "push", "--project-ref", target.ref, ...(plan ? ["--dry-run"] : [])];
+    break;
   case "unset-secrets": {
     if (!secrets.length) usage("unset-secrets needs at least one --secret NAME");
     try {
@@ -164,6 +176,10 @@ if (dryRun) {
 
 if (operation === "delete-function") {
   console.log(`\nThis removes ${DEFAULT_FUNCTION} from the ${target.environment} project.`);
+}
+if (operation === "push-migrations" && !plan) {
+  console.log(`\nThis applies every pending migration to the ${target.environment} database.`);
+  console.log("Review the pending set first with --plan.");
 }
 
 try {

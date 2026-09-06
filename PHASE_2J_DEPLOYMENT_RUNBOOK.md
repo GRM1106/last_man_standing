@@ -28,6 +28,8 @@ this checkout happens to be linked to.
 
 ```sh
 npm run supabase:check:staging                                    # prove the target
+npm run supabase:db:plan:staging                                  # review pending migrations
+npm run supabase:db:push:staging                                  # step 5, if migrations are due
 npm run supabase:secrets:set:staging -- --env-file <path outside the repo>
 npm run supabase:deploy:staging -- --dry-run                      # confirm, then re-run without --dry-run
 ```
