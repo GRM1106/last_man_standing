@@ -37,7 +37,9 @@ Recommended initial production cadence is every two hours continuously. This is 
 
 ## Retry, timeout, and recovery
 
-Network errors, timeouts, HTTP 429, and provider 5xx responses are retried twice with short bounded backoff. Malformed JSON and schema validation failures are not retried. On terminal failure the attempt is recorded, ingestion and automation are skipped, and the previous good provider facts remain intact. A later successful run clears the current provider error and refreshes freshness.
+Network errors, timeouts, HTTP 403, HTTP 429, and provider 5xx responses are retried twice with short bounded backoff, giving three attempts in total. Malformed JSON and schema validation failures are not retried, and neither is any other 4xx: a 400, 401 or 404 indicates a persistent request defect and fails on the first attempt. On terminal failure the attempt is recorded, ingestion and automation are skipped, and the previous good provider facts remain intact. A later successful run clears the current provider error and refreshes freshness.
+
+HTTP 403 is included because it has been observed to be transient from the deployed Edge Function environment. On 2026-09-06 the first staging admin sync failed with `http_403` while direct requests carrying identical headers succeeded throughout, and the same request from the same deployed function succeeded 65 seconds later. No application authorization is involved in that path. Do not narrow the retryable set back to 429 and 5xx alone.
 
 ## Authentication and secrets
 

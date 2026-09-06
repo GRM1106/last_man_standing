@@ -11,6 +11,20 @@ export class ProviderError extends Error {
   }
 }
 
+// 4xx statuses this upstream has been observed to return transiently. Everything at 5xx
+// is retried as well; every other 4xx is treated as a persistent request defect and is
+// not retried, so a 400/401/404 still fails on the first attempt.
+//
+// 429 is ordinary rate limiting. 403 is here because of a real observation on
+// 2026-09-06: the first staging Edge Function sync failed with `http_403` while direct
+// requests carrying identical headers succeeded throughout, and the same request from
+// the same deployed function succeeded 65 seconds later. HTTP 403 from this upstream has
+// been observed to be transient from the deployed Edge Function environment, and it
+// involves no application authorization. Do not narrow this back to `429` alone.
+const TRANSIENT_HTTP_STATUSES = new Set([403, 429]);
+
+const isRetryableStatus = (status) => status >= 500 || TRANSIENT_HTTP_STATUSES.has(status);
+
 const isInteger = (value) => Number.isInteger(value);
 const isNullable = (value, predicate) => value === null || value === undefined || predicate(value);
 const isBoolean = (value) => typeof value === "boolean";
@@ -68,7 +82,7 @@ async function fetchJson(url, { fetchImpl, timeoutMs }) {
     });
     if (!response.ok) throw new ProviderError("The FPL feed returned an unsuccessful response.", {
       classification: `http_${response.status}`,
-      retryable: response.status >= 500 || response.status === 429
+      retryable: isRetryableStatus(response.status)
     });
     try { return await response.json(); }
     catch (cause) { throw new ProviderError("The FPL feed returned malformed JSON.", { classification: "malformed_json", cause }); }
