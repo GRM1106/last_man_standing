@@ -102,4 +102,9 @@ wait "$provider_race_one"; wait "$provider_race_two"
 docker exec -i "$container_name" psql -v ON_ERROR_STOP=1 -q -U postgres -d postgres \
   < supabase/verification/lms_phase_2j_concurrency_verify.sql
 
-echo "LMS Integrity Phase 1 and Phases 2A-2J database verification plus two-session automation/provider races passed."
+docker exec -i "$container_name" psql -v ON_ERROR_STOP=1 -q -U postgres -d postgres \
+  < supabase/migrations/20260824000700_lms_phase_2k_persist_failed_automation_runs.sql
+docker exec -i "$container_name" psql -v ON_ERROR_STOP=1 -q -U postgres -d postgres \
+  < supabase/verification/lms_phase_2k_automation_persistence_verification.sql
+
+echo "LMS Integrity Phase 1 and Phases 2A-2J database verification, Phase 2K automation-run persistence, plus two-session automation/provider races passed."
