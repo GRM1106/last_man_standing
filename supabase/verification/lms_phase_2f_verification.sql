@@ -1,5 +1,5 @@
 begin;
-do $$ declare admin_id uuid; begin
+do $$ declare admin_id uuid; declare cycle_before_exhaustion uuid; begin
  select id into admin_id from public.profiles where is_admin order by created_at limit 1;
  perform set_config('request.jwt.claim.sub',admin_id::text,true);
  insert into public.football_teams(id,season,fpl_team_id,code,name,short_name,updated_at) values (-91101,'PHASE2F',-91101,-91101,'2F Home','2FH',now()),(-91102,'PHASE2F',-91102,-91102,'2F Away','2FA',now());
@@ -21,8 +21,14 @@ do $$ declare admin_id uuid; begin
  update public.profiles set is_admin=true where id=admin_id;
  perform public.confirm_buy_back('00000000-0000-0000-0000-000000009101',admin_id); perform public.confirm_buy_back('00000000-0000-0000-0000-000000009101',admin_id);
  if (select count(*) from public.pot_player_buyback_events where pot_id='00000000-0000-0000-0000-000000009101' and event_type='confirmed')<>1 then raise exception 'Confirmation retry was not idempotent'; end if;
- perform public.confirm_team_pick('00000000-0000-0000-0000-000000009101',-91202,-91102);
  if public.current_team_cycle_id('00000000-0000-0000-0000-000000009101',admin_id) is distinct from (select team_cycle_id from public.player_picks where pot_id='00000000-0000-0000-0000-000000009101' and gameweek_number=6) then raise exception 'Buy-back reset the team-use cycle'; end if;
+ -- The gameweek-7 pick consumes the second and last team of this two-team season, so from
+ -- Phase 2K onwards the pool legitimately rolls over here. That is exhaustion, not
+ -- buy-back: the assertion above therefore runs before the pick, and what must hold after
+ -- it is that the historical gameweek-6 pick keeps its original cycle.
+ cycle_before_exhaustion := public.current_team_cycle_id('00000000-0000-0000-0000-000000009101',admin_id);
+ perform public.confirm_team_pick('00000000-0000-0000-0000-000000009101',-91202,-91102);
+ if (select team_cycle_id from public.player_picks where pot_id='00000000-0000-0000-0000-000000009101' and gameweek_number=6) is distinct from cycle_before_exhaustion then raise exception 'Exhaustion rollover rewrote historical pick cycles'; end if;
  perform public.revoke_buy_back('00000000-0000-0000-0000-000000009101',admin_id,'Manual payment was not received');
  if not exists(select 1 from public.pots where id='00000000-0000-0000-0000-000000009101' and lifecycle_status='review') then raise exception 'Downstream revocation did not enter review'; end if;
  if not exists(select 1 from public.player_picks where pot_id='00000000-0000-0000-0000-000000009101' and gameweek_number=7) then raise exception 'Downstream revocation rewrote pick history'; end if;
