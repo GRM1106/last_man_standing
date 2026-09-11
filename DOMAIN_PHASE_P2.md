@@ -1,8 +1,9 @@
 # Domain Phase P2 — Controlled Result Corrections
 
-Status: committed on `domain/phase-p2`, deployed and schema/security verified on
-isolated staging, and not merged into `main`. **It is not approved or applied to
-production.**
+Status: merged into `main` through commit `d09613e` and deployed and
+schema/security verified on isolated staging. **The recorded work does not
+approve or prove application to production.** Git merge state, database
+deployment state, and production approval are separate facts.
 
 Phase P2 adds controlled authoritative fixture corrections on top of the P1
 provenance foundation. It does not recalculate historical rounds or change any

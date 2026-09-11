@@ -1,0 +1,24 @@
+begin;
+create temporary table h as select id admin_id from public.profiles where is_admin limit 1;
+select set_config('request.jwt.claim.sub',(select admin_id::text from h),true);
+insert into public.pots(id,name,season,entry_fee_pence,buy_back_fee_pence,status,created_by,test_mode,lifecycle_status,membership_locked_at) select '00000000-0000-0000-0000-000000011101','2H completed','PHASE2H',1000,1000,'complete',admin_id,false,'complete',now() from h;
+insert into public.pot_gameweeks(pot_id,gameweek_number,pick_deadline_at) values('00000000-0000-0000-0000-000000011101',38,now()-interval '1 day');
+insert into public.pot_players(pot_id,player_id,player_status,payment_status,buy_back_status) select '00000000-0000-0000-0000-000000011101',admin_id,'winner','paid','available' from h;
+insert into public.pot_completions(pot_id,round_id,gameweek_number,resolution_rule,entry_contribution_pence,buyback_contribution_pence,total_prize_pence,winner_count,completed_by) select '00000000-0000-0000-0000-000000011101',r.id,38,'gw38_survivors',1000,0,1000,1,admin_id from h cross join public.pot_rounds r where r.pot_id='00000000-0000-0000-0000-000000011101';
+insert into public.pot_winners(pot_id,player_id,round_id,winner_reason,prize_share_pence,share_order) select '00000000-0000-0000-0000-000000011101',admin_id,r.id,'gw38_survivor',1000,1 from h cross join public.pot_rounds r where r.pot_id='00000000-0000-0000-0000-000000011101';
+do $$ declare c1 uuid;c2 uuid;p jsonb;r jsonb;admin_id uuid;begin
+ select id into admin_id from public.profiles where is_admin limit 1;
+ c1:=public.open_lms_review_case('00000000-0000-0000-0000-000000011101','completed_pot_correction','Corrected evidence may affect the completed winner set',null,null,null,admin_id,jsonb_build_object('original_completion_preserved',true),'admin');
+ c2:=public.open_lms_review_case('00000000-0000-0000-0000-000000011101','late_buyback_revocation','A late buy-back revocation also requires an independent decision',null,null,null,admin_id,'{}','admin');
+ if (select count(*) from public.lms_review_cases where pot_id='00000000-0000-0000-0000-000000011101' and status='open')<>2 then raise exception 'Independent review cases missing';end if;
+ p:=public.preview_lms_review_resolution(c1,'revise_winners',array[admin_id]);
+ update public.lms_review_cases set version=version+1 where id=c1;
+ begin perform public.resolve_lms_review_case(c1,'revise_winners','Evidence supports the revised official winner',p->>'version_token',array[admin_id]);raise exception 'Stale preview accepted';exception when others then if sqlerrm='Stale preview accepted' then raise;end if;end;
+ p:=public.preview_lms_review_resolution(c1,'revise_winners',array[admin_id]);r:=public.resolve_lms_review_case(c1,'revise_winners','Evidence supports the revised official winner',p->>'version_token',array[admin_id]);
+ if (r->>'remaining_open_cases')::integer<>1 or not exists(select 1 from public.pots where id='00000000-0000-0000-0000-000000011101' and lifecycle_status='review') then raise exception 'Resolving one case cleared another';end if;
+ if (select count(*) from public.pot_winners where pot_id='00000000-0000-0000-0000-000000011101')<>1 or not exists(select 1 from public.pot_completion_adjudications where pot_id='00000000-0000-0000-0000-000000011101' and original_total_prize_pence=1000) or (select sum(prize_share_pence) from public.pot_adjudicated_winners)<>1000 then raise exception 'Original/revised completion history failed';end if;
+ p:=public.preview_lms_review_resolution(c2,'confirm_existing',null);perform public.resolve_lms_review_case(c2,'confirm_existing','The existing competition state is upheld',p->>'version_token',null);
+ if not exists(select 1 from public.pots where id='00000000-0000-0000-0000-000000011101' and lifecycle_status='complete' and review_status='reviewed') then raise exception 'Last resolution did not restore completion';end if;
+ if has_table_privilege('authenticated','public.lms_review_cases','insert') or has_table_privilege('authenticated','public.lms_review_resolution_events','update') or has_table_privilege('authenticated','public.pot_adjudicated_winners','delete') then raise exception 'Review mutation ACL exposed';end if;
+end $$;
+rollback;

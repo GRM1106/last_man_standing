@@ -1,13 +1,17 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { SUPABASE_REF, VERCEL_CONFIG } from "../scripts/lms-deploy-target.mjs";
 
 describe("deployment security policy", () => {
   const config = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+  const stagingConfig = JSON.parse(readFileSync(new URL("../vercel.staging.json", import.meta.url), "utf8"));
   const headers = Object.fromEntries(config.headers[0].headers.map(({ key, value }) => [key, value]));
+  const stagingHeaders = Object.fromEntries(stagingConfig.headers[0].headers.map(({ key, value }) => [key, value]));
   const csp = headers["Content-Security-Policy"];
+  const stagingCsp = stagingHeaders["Content-Security-Policy"];
 
   it("uses the bundled production directory", () => {
-    expect(config.buildCommand).toBe("npm run build");
+    expect(config.buildCommand).toBe("npm run vercel-build:production");
     expect(config.outputDirectory).toBe("dist");
   });
 
@@ -27,6 +31,31 @@ describe("deployment security policy", () => {
     expect(headers["X-Content-Type-Options"]).toBe("nosniff");
     expect(headers["Referrer-Policy"]).toBe("strict-origin-when-cross-origin");
     expect(headers["Permissions-Policy"]).toContain("camera=()");
+  });
+
+  it("keeps staging and production build policies isolated", () => {
+    const productionRef = "enzdvsppduyqtpdeseyh";
+    const stagingRef = "evhiixndiuwwodsouyhf";
+    // Each config's build command is the guarded deployment entry point for its own target.
+    expect(config.buildCommand).toBe("npm run vercel-build:production");
+    expect(stagingConfig.buildCommand).toBe("npm run vercel-build:staging");
+    expect(config.buildCommand).not.toBe(stagingConfig.buildCommand);
+    expect(csp).toContain(productionRef);
+    expect(csp).not.toContain(stagingRef);
+    expect(stagingCsp).toContain(stagingRef);
+    expect(stagingCsp).not.toContain(productionRef);
+    expect(stagingHeaders["X-LMS-Environment"]).toBe("staging");
+  });
+
+  it("keeps these literals in step with the deploy-target guard's single source of truth", () => {
+    // If these drift, the guard and this policy test would disagree about which ref and
+    // build command belong to which environment.
+    expect(SUPABASE_REF.production).toBe("enzdvsppduyqtpdeseyh");
+    expect(SUPABASE_REF.staging).toBe("evhiixndiuwwodsouyhf");
+    expect(VERCEL_CONFIG.production.buildCommand).toBe(config.buildCommand);
+    expect(VERCEL_CONFIG.staging.buildCommand).toBe(stagingConfig.buildCommand);
+    expect(VERCEL_CONFIG.production.outputDirectory).toBe(config.outputDirectory);
+    expect(VERCEL_CONFIG.staging.outputDirectory).toBe(stagingConfig.outputDirectory);
   });
 
   it("keeps serverless JavaScript compatible with the ESM package runtime", () => {
@@ -49,7 +78,7 @@ describe("rendering sink inventory", () => {
       .join("\n");
     const occurrences = scripts.match(/\.innerHTML\s*=/g) || [];
     expect(occurrences).toHaveLength(1);
-    expect(scripts.match(/select\.innerHTML\s*=\s*'<option value="">Select approved player<\/option>';/g)).toHaveLength(1);
+    expect(scripts.match(/select\.innerHTML\s*=\s*'<option value="">Select registered player<\/option>';/g)).toHaveLength(1);
     expect(scripts).not.toMatch(/innerHTML\s*=\s*`/);
     expect(scripts).not.toMatch(/\.outerHTML\s*=/);
     expect(scripts).not.toMatch(/\.insertAdjacentHTML\s*\(/);

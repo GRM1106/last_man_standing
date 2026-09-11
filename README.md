@@ -16,10 +16,41 @@ Useful checks:
 ```sh
 npm test          # XSS and deployment-policy regression tests
 npm run build     # production bundle in dist/
-npm run check     # tests followed by a production build
+npm run check     # tests followed by the build-target isolation checks
 npm run preview   # preview the production build locally
 npm run audit     # dependency security audit
 ```
+
+The normal development and build commands target production. A staging build is deliberately
+fail-closed and requires the staging publishable browser key outside the repository:
+
+```sh
+cp .env.staging.example .env.staging.local
+# Replace the placeholder with the staging sb_publishable_ value.
+npm run build:staging
+```
+
+`vercel.json` is the production deployment policy. `vercel.staging.json` is the separate staging
+policy and permits only the staging Supabase HTTPS/WebSocket origins. Creating either bundle does
+not deploy it. Never put a database password, service-role key or scheduler secret in these files.
+
+A build target that contradicts the Vercel project this checkout is linked to is refused rather
+than built, and a deployment must positively prove which project it is going to. Validation is
+built into the deploy commands, so there is no separate checker to remember:
+
+```sh
+npm run deploy:staging       # or deploy:production
+```
+
+Read [`DEPLOY_TARGET_GUARD.md`](DEPLOY_TARGET_GUARD.md) for what the guard checks, what a raw
+`vercel deploy` does, and why production deployment stays blocked until the production Vercel
+project identity is recorded.
+
+Remote Supabase operations are guarded the same way. Edge Function deployment, deletion and
+function secrets go through `npm run supabase:*:staging`, which prove the project and pass an
+explicit `--project-ref`; production is blocked. Local `supabase start`, `stop`,
+`db reset --local` and `functions serve` are unaffected. See
+[`SUPABASE_TARGET_GUARD.md`](SUPABASE_TARGET_GUARD.md).
 
 ## Supabase setup
 
@@ -58,12 +89,14 @@ Apply the SQL modules in this exact order:
 22. `supabase/player_team_availability.sql`
 23. `supabase/result_provenance_foundation.sql`
 24. `supabase/result_corrections.sql`
+25. `supabase/migrations/20260823000100_lms_integrity_phase_1.sql`
 
 Module 23 is the forward-only Phase P1 foundation. Module 24 is the forward-only
 Phase P2 controlled-correction layer. Read [`DOMAIN_PHASE_P1.md`](DOMAIN_PHASE_P1.md)
-and [`DOMAIN_PHASE_P2.md`](DOMAIN_PHASE_P2.md) before using them. P2 is committed
-on `domain/phase-p2`, deployed and schema/security verified on isolated staging,
-and not merged into `main`. It is not approved or applied to production. Its
+and [`DOMAIN_PHASE_P2.md`](DOMAIN_PHASE_P2.md) before using them. P2 is merged into
+`main` through commit `d09613e` and was deployed and schema/security verified on
+isolated staging. Production deployment remains unverified and was not approved
+by the recorded P2 work. Its
 `supabase/result_corrections_verification.sql` companion is rollback-only and is
 intended only for a disposable/local Supabase database.
 
@@ -80,7 +113,13 @@ live-tested against staging.
 Staging proves deployment, migration history, schema shape and security
 configuration. Disposable local testing proves functional behavior, finality,
 authorization, rollback, idempotency and all three concurrency races. Production
-application remains prohibited.
+evidence does not establish production deployment or approval.
+
+Module 25 is the forward-only LMS Integrity Phase 1 migration. It requires the
+effective P1 and P2 schema and deliberately refuses a second application. Verify
+the target catalog before applying it. Never re-run an older setup module to
+install a fix: historical modules contain function definitions superseded by
+later modules and can silently restore obsolete game or security behaviour.
 
 P1 database testing requires a real disposable Supabase-compatible PostgreSQL
 instance with the Supabase Auth schema, `auth.uid()`, the `anon`, `authenticated`,
@@ -118,8 +157,8 @@ failure-test script may run against staging or production.
 ### FPL synchronization
 
 FPL synchronization is safe for new or historical seasons only after the final
-P1 migration is installed. On an existing deployment, apply only the new forward
-P1 migration and verify it before the next sync. On a clean P2 test install, finish all 24
+P1 migration is installed. On an existing deployment, apply only reviewed forward
+migrations from its verified schema state. On a clean test install, finish all 25
 modules before the first sync. Do not use the administrator sync control while
 the database is between `fpl_fixture_setup.sql` and
 `result_provenance_foundation.sql`; the legacy global provider IDs can overwrite
@@ -142,6 +181,21 @@ Vite bundles `config.js` into the browser assets during each production build. C
 1. Import this GitHub repository in Vercel.
 2. Leave **Framework Preset** set to `Other`.
 3. Vercel reads the build command and `dist` output directory from `vercel.json`.
-4. Select **Deploy**.
+4. Deploy with `npm run deploy:production` rather than a raw `vercel deploy`, so the
+   target is validated locally before anything is uploaded.
+5. Select **Deploy**.
+
+Staging deploys use `vercel.staging.json` and are described in
+[`DEPLOY_TARGET_GUARD.md`](DEPLOY_TARGET_GUARD.md).
 
 Dependencies are pinned in `package.json` and `package-lock.json`. No private environment variables are required; `config.js` contains only the public Supabase project URL and publishable key.
+
+## Critical remediation verification
+
+`npm run test:db` creates a uniquely named, guarded disposable PostgreSQL container;
+it never stops or resets the normal Supabase development stack. Docker and the cached
+`public.ecr.aws/supabase/postgres:17.6.1.165` image are required. The suite applies the
+complete migration history and runs SQL business-rule, concurrency, scheduler actor
+and member/admin authorization regressions. See [CRITICAL_REMEDIATION.md](CRITICAL_REMEDIATION.md)
+for isolation guarantees, the read-only round diagnostic, repair planning and hosted
+verification requirements.

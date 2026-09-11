@@ -3,7 +3,8 @@ import handler from "../api/fpl.js";
 
 const bootstrap = {
   teams: [
-    { id: 1, code: 10, name: "Alpha FC", short_name: "ALP", ignored: true }
+    { id: 1, code: 10, name: "Alpha FC", short_name: "ALP", ignored: true },
+    { id: 2, code: 20, name: "Beta FC", short_name: "BET", ignored: true }
   ]
 };
 
@@ -57,16 +58,12 @@ describe("FPL serverless proxy", () => {
 
     await handler({ method: "GET" }, response);
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "https://fantasy.premierleague.com/api/bootstrap-static/", {
-      headers: { "user-agent": "GRM-LMS/1.0" }
-    });
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "https://fantasy.premierleague.com/api/fixtures/", {
-      headers: { "user-agent": "GRM-LMS/1.0" }
-    });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "https://fantasy.premierleague.com/api/bootstrap-static/", expect.objectContaining({ cache: "no-store", signal: expect.any(AbortSignal) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "https://fantasy.premierleague.com/api/fixtures/", expect.objectContaining({ cache: "no-store", signal: expect.any(AbortSignal) }));
     expect(response.setHeader).toHaveBeenCalledWith("Cache-Control", "s-maxage=900, stale-while-revalidate=3600");
     expect(response.status).toHaveBeenCalledWith(200);
     expect(response.json).toHaveBeenCalledWith({
-      teams: [{ id: 1, code: 10, name: "Alpha FC", short_name: "ALP" }],
+      teams: [{ id: 1, code: 10, name: "Alpha FC", short_name: "ALP" }, { id: 2, code: 20, name: "Beta FC", short_name: "BET" }],
       fixtures: [{
         id: 101,
         event: 1,
@@ -92,7 +89,7 @@ describe("FPL serverless proxy", () => {
     await handler({ method: "GET" }, response);
 
     expect(response.status).toHaveBeenCalledWith(502);
-    expect(response.json).toHaveBeenCalledWith({ error: "The FPL feed is temporarily unavailable." });
+    expect(response.json).toHaveBeenCalledWith({ error: "The FPL feed returned an unsuccessful response." });
   });
 
   it("does not expose internal exception details", async () => {
@@ -105,12 +102,16 @@ describe("FPL serverless proxy", () => {
     expect(response.json).toHaveBeenCalledWith({ error: "Could not reach the FPL feed." });
   });
 
-  it("preserves the existing method-agnostic behavior for unsupported methods", async () => {
-    vi.stubGlobal("fetch", successfulFetch());
+  it("rejects unsupported methods before contacting the provider", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
     const response = responseRecorder();
 
     await handler({ method: "POST" }, response);
 
-    expect(response.status).toHaveBeenCalledWith(200);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.setHeader).toHaveBeenCalledWith("Allow", "GET");
+    expect(response.status).toHaveBeenCalledWith(405);
+    expect(response.json).toHaveBeenCalledWith({ error: "Method not allowed." });
   });
 });

@@ -1,0 +1,83 @@
+Phase 2K ACL recovery — verification manifest
+
+This manifest is the review anchor. Re-running the generator on the same
+source capture must reproduce the artifact SHA-256 exactly.
+
+source_capture              phase_2k_acl_capture_staging_2026-08-28.csv
+source_capture_sha256       7c3164fda5ed8e534a2a6e2cdd6b82386a1a9ab53f397c2b31fb917819ce829c
+generator                   scripts/generate_phase_2k_acl_recovery.py
+generator_sha256            07c3181ecf19b122d9465ce595c26a2a2271a4811c538b49d5b7906c412f3242
+generator_template          scripts/phase_2k_acl_recovery_template.sql
+generator_template_sha256   344e4341e7b53ac6bde9e532506ab44891c219da1fae5f1c2fdad3baf011a5ff
+artifact                    phase_2k_acl_recovery_staging_7c3164fd.sql
+artifact_label              staging evhiixndiuwwodsouyhf, captured 2026-08-28
+capture_query               phase_2k_acl_capture.sql
+capture_query_sha256        0a83294ad9abbdf37cd7ac49e306f4696d9eb9a0c132708e1545f651e0e669d6
+status                      SUPERSEDED - capture query amended after this capture was taken
+artifact_sha256             b0462614f989de1b44541ae9098e070b70af616c914def58eb28e04e74c0a60f
+
+Source capture structure
+  A. SCHEMA PRIVILEGES       7
+  B. RELATION PRIVILEGES     245
+  D. ROUTINE PRIVILEGES      75
+  E. OWNERSHIP               71
+  F. DEFAULT PRIVILEGES      78
+  G. GRANTEES OBSERVED       10
+  H. ROLE SECURITY CONTEXT   48
+  J. SCHEMA SCOPE            10
+
+Expected workload
+  source_rows                544
+  source_edges               327
+  source_owned_objects       71
+  source_default_groups      6
+  source_default_edges       72
+  source_roles               6
+  source_role_closure        20
+  source_role_memberships    25
+  replay_grants              327
+  approved_null_acl_objects  18
+
+Expected approved provenance residual
+  An object whose captured ACL is NULL may end the run holding an explicit
+  ACL byte-equal to its built-in default. Effective privileges are
+  identical; only provenance differs. PostgreSQL cannot restore a NULL
+  ACL, so this residual is unavoidable and is the ONLY difference the
+  artifact's in-transaction verification will accept WITHIN ITS SCOPE.
+
+  That scope is: ACL edges in schema public, the in-scope default-privilege
+  rules, and object ownership. Verification does NOT read role attributes,
+  role membership, inheritance, RLS state or policies, or platform-schema
+  ACLs. A difference in any of those passes silently and must be verified
+  separately.
+
+  This is the PERMITTED set, derived from the source capture alone. How many
+  of them actually drift depends on the target: an object that is NULL on
+  both sides is left untouched and does not drift at all. The artifact
+  verifies that nothing outside this set differs, and that no object that
+  was NULL before the run became explicit during it.
+
+  A relation and its row type share an identity and are distinguished only
+  by class, so both are listed below.
+  permitted_null_acl_objects  18
+    routine   public.create_profile_for_new_user()
+    routine   public.rls_auto_enable()
+    sequence  public.football_fixtures_id_seq
+    sequence  public.football_teams_id_seq
+    sequence  public.player_picks_id_seq
+    type      public.admin_audit_events
+    type      public.fixture_result_overrides
+    type      public.football_fixtures
+    type      public.football_team_form
+    type      public.football_teams
+    type      public.player_picks
+    type      public.pot_fixture_test_results
+    type      public.pot_gameweek_processes
+    type      public.pot_gameweeks
+    type      public.pot_player_status_history
+    type      public.pot_players
+    type      public.pots
+    type      public.profiles
+
+The artifact is NOT authorized for execution by this manifest. It targets
+restored copies only and must never be run against staging or production.

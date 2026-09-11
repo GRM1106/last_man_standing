@@ -8,6 +8,7 @@ import {
   renderStandingPick,
   safeImageUrl,
 } from "./ui.js";
+import { countdownText, updatePickDeadlineStates } from "./deadline-ui.js";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 const loading = document.querySelector("#dashboard-loading"),
@@ -50,22 +51,7 @@ function formDots(team) {
   );
   return form;
 }
-function countdownText(deadline) {
-  const remaining = new Date(deadline) - new Date();
-  if (remaining <= 0) return "Deadline passed";
-  const days = Math.floor(remaining / 86400000),
-    hours = Math.floor((remaining % 86400000) / 3600000),
-    minutes = Math.floor((remaining % 3600000) / 60000),
-    seconds = Math.floor((remaining % 60000) / 1000);
-  return `${days ? `${days}d ` : ""}${String(hours).padStart(2, "0")}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`;
-}
-function updateCountdowns() {
-  document.querySelectorAll("[data-deadline]").forEach((element) => {
-    element.textContent = countdownText(element.dataset.deadline);
-    if (new Date(element.dataset.deadline) <= new Date())
-      element.closest(".selection-deadline")?.classList.add("passed");
-  });
-}
+const updateCountdowns = () => updatePickDeadlineStates(document);
 setInterval(updateCountdowns, 1000);
 function teamButton(team, fixture, pot, selection, isAway = false) {
   const button = document.createElement("button");
@@ -79,7 +65,6 @@ function teamButton(team, fixture, pot, selection, isAway = false) {
   if (!team.available) addText(copy, "small", "Already used");
   button.append(copy);
   button.disabled =
-    selection.payment_status !== "paid" ||
     selection.player_status !== "active" ||
     selection.deadline_passed ||
     !team.available ||
@@ -161,13 +146,6 @@ function renderSelection(pot, selection, panel) {
     );
     return;
   }
-  if (selection.payment_status !== "paid")
-    addText(
-      panel,
-      "p",
-      "You can review the fixtures now. Team selection unlocks after the admin confirms your entry payment.",
-      "selection-note warning",
-    );
   const grouped = new Map();
   (selection.fixtures || []).forEach((fixture) => {
     const day = fixture.kickoff_at
@@ -409,6 +387,9 @@ function renderPot(pot) {
   header.prepend(title);
   const summary = document.createElement("div");
   summary.className = "dashboard-summary compact";
+  const completion = document.createElement("section");
+  completion.className = "completion-summary";
+  const review = document.createElement("section"); review.className="review-banner";
   [
     ["Player status", titleCase(pot.player_status)],
     ["Buy-back", titleCase(pot.buy_back_status)],
@@ -465,33 +446,37 @@ function renderPot(pot) {
     const button = addText(
       buyBack,
       "button",
-      "I’ve paid — claim buy-back",
+      `Buy back for ${money(pot.buy_back_fee_pence)}`,
       "claim-button",
     );
     button.type = "button";
     button.addEventListener("click", () => claimBuyBack(pot.id, button));
     buyBack.prepend(copy);
-  } else if (pot.buy_back_status === "claimed") {
-    addText(buyBack, "strong", "Buy-back awaiting approval");
+  } else if (pot.buy_back_status === "requested") {
+    addText(buyBack, "strong", "Buy-back requested — you're back in the game");
     addText(
       buyBack,
       "p",
-      "Your claim was submitted in time. The admin will confirm your payment and reactivate you.",
+      "Payment confirmation is pending. You can participate in the next round now.",
     );
-  } else if (pot.buy_back_status === "used") {
-    addText(buyBack, "strong", "Buy-back used");
+  } else if (pot.buy_back_status === "confirmed") {
+    addText(buyBack, "strong", "Buy-back confirmed");
     addText(
       buyBack,
       "p",
-      "You are back in the pot. Your one-time buy-back has now been used.",
+      "Your one-time buy-back has been used.",
     );
-  } else if (pot.buy_back_status === "expired") {
-    addText(buyBack, "strong", "Buy-back expired");
+  } else if (pot.buy_back_status === "revoked") {
+    addText(buyBack, "strong", "Buy-back revoked");
     addText(
       buyBack,
       "p",
-      "The next gameweek began before a claim was submitted.",
+      "Your buy-back remains used. Contact the administrator if you need help.",
     );
+  } else if (pot.buy_back_status === "window_closed") {
+    addText(buyBack, "strong", "Buy-back window closed");
+  } else if (pot.player_status === "eliminated" && pot.buy_back_status !== "available") {
+    addText(buyBack, "strong", "Buy-back already used — you are eliminated.");
   }
   const gameweeks = document.createElement("section");
   gameweeks.className = "pot-gameweeks";
@@ -535,13 +520,35 @@ function renderPot(pot) {
     link.textContent = label;
     quickNav.append(link);
   });
-  card.append(header, quickNav, summary, payment);
+  card.append(header, quickNav, summary, review, completion, payment);
   if (buyBack.childElementCount) card.append(buyBack);
   card.append(gameweeks, selection, history, standings);
   potsContainer.append(card);
   loadPotSelection(pot, selection);
   loadPickHistory(pot, history);
   loadPlayerStandings(pot, standings);
+  loadPotCompletion(pot, completion);
+  loadPlayerReviewState(pot,review);
+}
+async function loadPlayerReviewState(pot,panel){
+  const {data,error}=await supabase.rpc("get_my_pot_review_state",{selected_pot_id:pot.id});
+  if(error||!data?.under_review){panel.remove();return;}
+  addText(panel,"strong","Competition under review");
+  addText(panel,"p","This pot is under review because a match result or competition decision changed. Picks and history remain safe while the organiser resolves it.");
+}
+async function loadPotCompletion(pot, panel) {
+  const { data, error } = await supabase.rpc("get_pot_completion", { selected_pot_id: pot.id });
+  if (error || !data) { panel.remove(); return; }
+  const names=(data.winners||[]).map(winner=>winner.name);
+  addText(panel,"h3",`${names.length===1?"Winner":"Winners"}: ${names.join(", ")}`);
+  addText(panel,"strong",`Prize pot: ${money(data.total_prize_pence)}`);
+  addText(panel,"p",`${data.winner_count} winner${data.winner_count===1?"":"s"}`);
+  const mine=(data.winners||[]).find(winner=>winner.is_me);
+  if(mine) addText(panel,"p",`Your share: ${money(mine.prize_share_pence)}`);
+  const explanation=data.resolution_rule==="gw38_buyback_eligible_split"
+    ? "GW38 finished with no surviving picks. Players with an unused buy-back shared the pot."
+    : data.resolution_rule==="gw38_all_lost_split" ? "GW38 finished with no surviving picks, so the final cohort shared the pot." : "The GW38 surviving pick or picks won the pot.";
+  addText(panel,"p",explanation);
 }
 async function loadPickHistory(pot, panel) {
   const { data, error } = await supabase.rpc("get_my_pot_history", {
@@ -598,13 +605,15 @@ async function loadDashboard() {
     accountEmail.textContent = data.email;
     accountIdentity.hidden = false;
   }
-  if (!data?.approved || !data?.pots?.length) {
+  if (!data?.pots?.length) {
     loading.hidden = true;
     empty.hidden = false;
     return;
   }
   loading.hidden = true;
   content.hidden = false;
+  const { data: providerNotice } = await supabase.rpc("get_player_provider_notice");
+  if (providerNotice) message.textContent = providerNotice;
   greeting.textContent = "Last Man Standing 26/27 Pots";
   potCount.textContent = `${data.pots.length} pot${data.pots.length === 1 ? "" : "s"}`;
   potsContainer.replaceChildren();
