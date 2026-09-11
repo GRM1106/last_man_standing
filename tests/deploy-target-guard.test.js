@@ -35,13 +35,7 @@ function checkout(projectJson) {
 afterAll(() => scratches.forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 
 const STAGING_PROJECT = { projectId: "prj_7e9MI9tYTLrSlSrdmaXWu2oIs6ZV", projectName: "last-man-standing-staging" };
-const OTHER_PROJECT = { projectId: "prj_someOtherProjectIdentifier01", projectName: "last-man-standing" };
-
-// A registry in which BOTH targets are closed, so the production-linked case is representable.
-const CLOSED_REGISTRY = {
-  production: ["prj_someOtherProjectIdentifier01", "last-man-standing"],
-  staging: VERCEL_PROJECT_IDENTITIES.staging,
-};
+const PRODUCTION_PROJECT = { projectId: "prj_RwQmKxhshLDHXKOYfSuuqXiOOzyq", projectName: "last-man-standing" };
 
 const realConfig = (target) =>
   JSON.parse(readFileSync(new URL(`../${VERCEL_CONFIG[target].file}`, import.meta.url), "utf8"));
@@ -190,6 +184,12 @@ describe("linked Vercel project metadata", () => {
     expect(identityTarget("last-man-standing-staging.vercel.app")).toBe("staging");
     expect(identityTarget("prj_unknown")).toBeNull();
   });
+
+  it("recognises the production project by id, name and production hostname", () => {
+    expect(identityTarget(PRODUCTION_PROJECT.projectId)).toBe("production");
+    expect(identityTarget(PRODUCTION_PROJECT.projectName)).toBe("production");
+    expect(identityTarget("www.grm-lms.co.uk")).toBe("production");
+  });
 });
 
 describe("project/target compatibility guard", () => {
@@ -214,23 +214,20 @@ describe("project/target compatibility guard", () => {
   });
 
   it("rejects a staging build from a checkout linked to any non-staging project", () => {
-    const rootDir = checkout(OTHER_PROJECT);
+    const rootDir = checkout(PRODUCTION_PROJECT);
     expect(() => assertProjectTargetCompatible({ target: "staging", env: {}, rootDir }))
       .toThrow(/deployment target mismatch/i);
   });
 
-  it("rejects a staging build from a production-linked checkout when production is registered", () => {
-    const rootDir = checkout(OTHER_PROJECT);
-    expect(() =>
-      assertProjectTargetCompatible({ target: "staging", env: {}, rootDir, identities: CLOSED_REGISTRY }),
-    ).toThrow(/is the production Vercel project/i);
+  it("identifies a production-linked checkout when rejecting a staging build", () => {
+    const rootDir = checkout(PRODUCTION_PROJECT);
+    expect(() => assertProjectTargetCompatible({ target: "staging", env: {}, rootDir }))
+      .toThrow(/is the production Vercel project/i);
   });
 
-  it("rejects a production build from a production-linked checkout only when it is not registered", () => {
-    const rootDir = checkout(OTHER_PROJECT);
-    expect(() =>
-      assertProjectTargetCompatible({ target: "production", env: {}, rootDir, identities: CLOSED_REGISTRY }),
-    ).not.toThrow();
+  it("allows a production build from the registered production-linked checkout", () => {
+    const rootDir = checkout(PRODUCTION_PROJECT);
+    expect(() => assertProjectTargetCompatible({ target: "production", env: {}, rootDir })).not.toThrow();
   });
 
   it("rejects a production build running on the staging Vercel project", () => {
@@ -291,15 +288,23 @@ describe("project/target compatibility guard", () => {
     ).toThrow(/could not be proven/i);
   });
 
-  it("names registering the production project as the prerequisite", () => {
+  it("reports presence-only Vercel context when deployment proof is unavailable", () => {
     try {
-      assertProjectTargetCompatible({ target: "production", env: {}, linkedProject: null, requireProof: true });
+      assertProjectTargetCompatible({
+        target: "production",
+        env: { VERCEL: "1", VERCEL_ENV: "production", PRIVATE_VALUE: "must-not-appear" },
+        linkedProject: null,
+        requireProof: true,
+      });
     } catch (error) {
-      expect(error.message).toContain("No production Vercel project is recorded");
-      expect(error.message).toContain("VERCEL_PROJECT_ID");
+      expect(error.message).toContain("VERCEL=present");
+      expect(error.message).toContain("VERCEL_ENV=present");
+      expect(error.message).toContain("VERCEL_PROJECT_ID=missing");
+      expect(error.message).toContain("VERCEL_PROJECT_PRODUCTION_URL=missing");
+      expect(error.message).not.toContain("must-not-appear");
       expect(error.message).not.toMatch(/sb_publishable_/);
     }
-    expect.assertions(3);
+    expect.assertions(6);
   });
 
   it("proves a deployment from VERCEL_PROJECT_ID when the project is registered", () => {
@@ -314,12 +319,33 @@ describe("project/target compatibility guard", () => {
     expect(() =>
       assertProjectTargetCompatible({
         target: "production",
-        env: { VERCEL: "1", VERCEL_PROJECT_ID: OTHER_PROJECT.projectId },
+        env: { VERCEL: "1", VERCEL_PROJECT_ID: PRODUCTION_PROJECT.projectId },
         linkedProject: null,
         requireProof: true,
-        identities: CLOSED_REGISTRY,
       }),
     ).not.toThrow();
+  });
+
+  it("proves the production deployment from its registered production hostname", () => {
+    expect(() =>
+      assertProjectTargetCompatible({
+        target: "production",
+        env: { VERCEL: "1", VERCEL_PROJECT_PRODUCTION_URL: "https://www.grm-lms.co.uk/" },
+        linkedProject: null,
+        requireProof: true,
+      }),
+    ).not.toThrow();
+  });
+
+  it("never lets an unknown project prove the production target", () => {
+    expect(() =>
+      assertProjectTargetCompatible({
+        target: "production",
+        env: { VERCEL: "1", VERCEL_PROJECT_ID: "prj_unknown" },
+        linkedProject: null,
+        requireProof: true,
+      }),
+    ).toThrow(DeployTargetError);
   });
 
   it("never lets an unknown project prove the staging target", () => {
