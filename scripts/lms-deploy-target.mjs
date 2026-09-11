@@ -64,10 +64,12 @@ export const VERCEL_CONFIG = Object.freeze({
 // A target with an EMPTY list is OPEN: any project may build it, unless that project
 // is claimed by another target.
 //
-// The production Vercel project is deliberately not recorded in this repository, so
-// `production` is open. Add its id/name here to close it once it is recorded.
 export const VERCEL_PROJECT_IDENTITIES = Object.freeze({
-  production: Object.freeze([]),
+  production: Object.freeze([
+    "prj_RwQmKxhshLDHXKOYfSuuqXiOOzyq",
+    "last-man-standing",
+    "www.grm-lms.co.uk",
+  ]),
   staging: Object.freeze([
     "prj_7e9MI9tYTLrSlSrdmaXWu2oIs6ZV",
     "last-man-standing-staging",
@@ -293,13 +295,26 @@ function mismatch({ target, source, value, detected }) {
     .join("\n");
 }
 
-function unproven(target, identities) {
+const VERCEL_CONTEXT_KEYS = Object.freeze([
+  "VERCEL",
+  "VERCEL_ENV",
+  "VERCEL_TARGET_ENV",
+  "VERCEL_PROJECT_ID",
+  "VERCEL_PROJECT_PRODUCTION_URL",
+]);
+
+function describeVercelContext(env) {
+  return VERCEL_CONTEXT_KEYS.map((key) => `${key}=${token(env[key]) ? "present" : "missing"}`).join(", ");
+}
+
+function unproven(target, identities, env) {
   const recorded = identitiesFor(target, identities);
   return [
     `Refusing to deploy: the ${target} deployment target could not be proven.`,
     "",
     `  Requested target   : ${target}`,
     "  Evidence found     : none",
+    `  Vercel context     : ${describeVercelContext(env)}`,
     "  Why this is unsafe : a deployment must positively identify the Vercel project it",
     "                       is going to. Without proof, this bundle could be published to",
     "                       a project belonging to another environment.",
@@ -311,8 +326,7 @@ function unproven(target, identities) {
     "      so VERCEL_PROJECT_ID is available, and that id listed there.",
     "",
     recorded.length === 0
-      ? `  No ${target} Vercel project is recorded in this repository yet. Discovering and\n` +
-        `  registering its id or name is a prerequisite for ${target} deployment.`
+      ? `  No ${target} Vercel project is recorded in this repository.`
       : `  Recorded ${target} projects: ${recorded.join(", ")}`,
   ].join("\n");
 }
@@ -356,7 +370,7 @@ export function assertProjectTargetCompatible({
     }
   }
 
-  if (requireProof && !proven) throw new DeployTargetError(unproven(target, identities));
+  if (requireProof && !proven) throw new DeployTargetError(unproven(target, identities, env));
 
   return evidence.map((item) => ({ ...item, detected: identityTarget(item.value, identities) }));
 }

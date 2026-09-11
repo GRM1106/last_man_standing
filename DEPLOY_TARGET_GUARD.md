@@ -88,11 +88,8 @@ cannot silently drift.
 - A target with a **non-empty** list is closed: only a listed project may build it. The
   staging project is listed by id, name and production hostname.
 - A target with an **empty** list is open *for ordinary builds*: any project may build it,
-  unless another target claims that project. The production Vercel project is deliberately
-  not recorded in this repository, so `production` is open in that sense — the staging
-  project is still refused, because `staging` claims it. Under the deployment rule an
-  empty list means nothing can prove the target, so production deployment is refused
-  outright (see below).
+  unless another target claims that project. Under the deployment rule an empty list means
+  nothing can prove the target.
 
 When there is no evidence at all — a fresh clone, or CI with no `.vercel/project.json` —
 an ordinary **build** proceeds: absence is not a contradiction. A **deployment** does not:
@@ -102,13 +99,15 @@ close a target or to register a new one.
 An unknown project can never prove `staging`, because `staging` is a closed set matched by
 exact id, name or production hostname.
 
-### Production deployment is blocked until its project is registered
+### Registered production project
 
-`VERCEL_PROJECT_IDENTITIES.production` is empty, so **no production deployment can
-currently be proven** and `npm run deploy:production` will refuse. This is deliberate: the
-production Vercel project identity is not recorded in this repository, and inventing one
-would be worse than failing. Discovering the production project's id or name and adding it
-there is an explicit prerequisite for production deployment.
+Read-only Vercel inspection confirmed the production project as `last-man-standing`, project
+ID `prj_RwQmKxhshLDHXKOYfSuuqXiOOzyq`, with primary production hostname
+`www.grm-lms.co.uk`. All three exact identifiers are registered in
+`VERCEL_PROJECT_IDENTITIES.production`.
+
+A production deployment remains fail closed unless the checkout link or Vercel build
+environment supplies one of those identifiers. An unrecognised project is rejected.
 
 Ordinary production builds (`npm run build`, CI, fresh clones) are unaffected.
 
@@ -142,6 +141,7 @@ Refusing to deploy: the production deployment target could not be proven.
 
   Requested target   : production
   Evidence found     : none
+  Vercel context     : VERCEL=present, VERCEL_ENV=present, VERCEL_TARGET_ENV=missing, VERCEL_PROJECT_ID=missing, VERCEL_PROJECT_PRODUCTION_URL=missing
   Why this is unsafe : a deployment must positively identify the Vercel project it
                        is going to. Without proof, this bundle could be published to
                        a project belonging to another environment.
@@ -152,12 +152,12 @@ Refusing to deploy: the production deployment target could not be proven.
     - a Vercel build with "Enable access to System Environment Variables" switched on,
       so VERCEL_PROJECT_ID is available, and that id listed there.
 
-  No production Vercel project is recorded in this repository yet. Discovering and
-  registering its id or name is a prerequisite for production deployment.
+  Recorded production projects: prj_RwQmKxhshLDHXKOYfSuuqXiOOzyq, last-man-standing, www.grm-lms.co.uk
 ```
 
-Both exit non-zero and write nothing, so `dist/` is left untouched. Guard errors never
-contain a publishable key or any other secret; a test asserts this.
+Both exit non-zero and write nothing, so `dist/` is left untouched. The presence-only
+Vercel context names an allowlisted set of variables without printing their values. Guard
+errors never contain a publishable key or any other secret; tests assert both properties.
 
 ## What a raw `vercel deploy` does
 
