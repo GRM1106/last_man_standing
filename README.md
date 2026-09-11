@@ -189,3 +189,13 @@ Staging deploys use `vercel.staging.json` and are described in
 [`DEPLOY_TARGET_GUARD.md`](DEPLOY_TARGET_GUARD.md).
 
 Dependencies are pinned in `package.json` and `package-lock.json`. No private environment variables are required; `config.js` contains only the public Supabase project URL and publishable key.
+
+## Critical remediation verification
+
+`npm run test:db` creates a uniquely named, guarded disposable PostgreSQL container;
+it never stops or resets the normal Supabase development stack. Docker and the cached
+`public.ecr.aws/supabase/postgres:17.6.1.165` image are required. The suite applies the
+complete migration history and runs SQL business-rule, concurrency, scheduler actor
+and member/admin authorization regressions. See [CRITICAL_REMEDIATION.md](CRITICAL_REMEDIATION.md)
+for isolation guarantees, the read-only round diagnostic, repair planning and hosted
+verification requirements.
