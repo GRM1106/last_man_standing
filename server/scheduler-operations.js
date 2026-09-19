@@ -1,4 +1,7 @@
-// actorId comes only from the Edge Function's verified administrator session.
+/**
+ * @param {string | null} [actorId=null] Administrator UUID from the Edge Function's
+ * verified session, or null for the scheduler system actor.
+ */
 export function createSchedulerOperations(database, actorId = null) {
   return {
     async claim(runSource) {
