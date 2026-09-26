@@ -47,8 +47,8 @@ describe("build target resolution", () => {
     }
   });
 
-  it("keeps the historic production default for local invocations", () => {
-    expect(resolveBuildTarget({})).toBe("production");
+  it("requires explicit hosted selection for local invocations", () => {
+    expect(() => resolveBuildTarget({})).toThrow(/no LMS_BUILD_TARGET was set/i);
   });
 
   it("refuses an unsupported target", () => {
@@ -62,9 +62,9 @@ describe("build target resolution", () => {
     expect(resolveBuildTarget({ VERCEL: "1", LMS_BUILD_TARGET: "staging" })).toBe("staging");
   });
 
-  it("applies the stricter Vercel rule only where the caller asks for it", () => {
-    // A test or dev-server run inside a Vercel build is not a deployment path.
-    expect(resolveBuildTarget({ VERCEL: "1" }, { requireExplicit: false })).toBe("production");
+  it("cannot re-enable an implicit hosted target through the legacy option", () => {
+    // The former option must not restore an implicit production fallback.
+    expect(() => resolveBuildTarget({ VERCEL: "1" }, { requireExplicit: false })).toThrow(/no LMS_BUILD_TARGET was set/i);
     expect(() => resolveBuildTarget({}, { requireExplicit: true })).toThrow(/no LMS_BUILD_TARGET was set/i);
   });
 

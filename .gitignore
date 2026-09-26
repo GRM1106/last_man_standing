@@ -6,3 +6,6 @@ dist/
 !.env.example
 !.env.staging.example
 .vercel
+
+# Local builds and generated CLI credentials
+dist-local/

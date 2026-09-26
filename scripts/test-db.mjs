@@ -36,6 +36,9 @@ try {
   // Exercise readiness through the public entry points after the complete migration chain.
   db.sql(read('supabase/verification/lms_nullable_finality_verification.sql'));
   console.log('PASS nullable finality: 18 final-schema scenarios, including retries and GW38.');
+  db.sql(read('supabase/verification/lms_open_registration_verification.sql'));
+  console.log('PASS open registration: 11 profile, access and authorisation assertions.');
+  console.log(db.sql(read('supabase/verification/lms_rpc_authorisation_verification.sql')).trim().split('\n').find(line => line.startsWith('PASS RPC security:')));
   // Existing rollback-based business-rule suites remain executable on the final schema.
   for (const name of [
     'lms_integrity_phase_1_verification.sql', 'lms_phase_2a_verification.sql',

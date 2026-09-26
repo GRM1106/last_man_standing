@@ -1,5 +1,8 @@
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { localBrowserConfig } from "./server/environment.js";
+import fplHandler from "./api/fpl.js";
 import { defineConfig, loadEnv } from "vite";
 import {
   DEPLOYABLE_OUTPUT_DIRECTORY,
@@ -32,16 +35,23 @@ const deployTargetGuard = (target, env) => ({
   },
 });
 
-export default defineConfig(({ mode, command }) => {
+export default defineConfig(({ mode, command, isPreview }) => {
   const env = mergeBuildEnv(process.env, loadEnv(mode, process.cwd(), "LMS_"));
-  // Only a build can be deployed, so only a build has to name its target on Vercel.
-  const target = resolveBuildTarget(env, {
-    requireExplicit: command === "build" && Boolean(env.VERCEL),
-  });
+  const declared = env.LMS_BUILD_TARGET?.trim().toLowerCase();
+  const target = isPreview ? (process.env.LMS_PREVIEW_TARGET || 'local') : (declared || 'local');
+  if (command === 'serve' && !isPreview && target !== 'local' && process.env.LMS_ALLOW_HOSTED_DEV !== target) {
+    throw new Error('Hosted development requires an explicit environment command. Use npm run dev for local services or npm run dev:staging.');
+  }
+  if (target !== 'local') resolveBuildTarget({ ...env, LMS_BUILD_TARGET: target });
+  if (command === 'build' && env.VERCEL && target === 'local') {
+    throw new Error('Vercel requires an explicit staging or production build target.');
+  }
 
   const stagingKey = env[STAGING_KEY_ENV];
   const selected =
-    target === "staging"
+    target === "local"
+      ? localBrowserConfig(env)
+      : target === "staging"
       ? { url: SUPABASE_URL.staging, publishableKey: stagingKey }
       : { url: SUPABASE_URL.production, publishableKey: PRODUCTION_PUBLISHABLE_KEY };
 
@@ -54,14 +64,48 @@ export default defineConfig(({ mode, command }) => {
     );
   }
 
+  const localHeaders = target === 'local' ? {
+        'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:55321 ws://127.0.0.1:55321 ws://127.0.0.1:5173; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        'X-LMS-Environment': 'local',
+      } : {};
+
   return {
-    plugins: [deployTargetGuard(target, env)],
+    // Disable Vite's automatic VITE_* exposure: only the three public defines below
+    // are allowed into client code, even when a shell contains privileged values.
+    envPrefix: [],
+    plugins: [
+      ...(target === 'local' ? [] : [deployTargetGuard(target, env)]),
+      {
+        name: 'lms-environment-boundary',
+        generateBundle() {
+          this.emitFile({ type: 'asset', fileName: 'lms-environment.json', source: JSON.stringify({ target }) });
+        },
+        configureServer(server) {
+          server.middlewares.use('/api/fpl', async (request, response) => {
+            response.status = (code) => { response.statusCode = code; return response; };
+            response.json = (body) => { response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(body)); return response; };
+            await fplHandler(request, response);
+          });
+        },
+        configurePreviewServer(server) {
+          let built;
+          try { built = JSON.parse(readFileSync(resolve(server.config.root, server.config.build.outDir, 'lms-environment.json'), 'utf8')); } catch { /* fail closed */ }
+          if (built?.target !== target) throw new Error('Preview target does not match the built bundle. Run npm run build:local then npm run preview, or use an explicit preview:production/preview:staging command.');
+        },
+      },
+    ],
+    server: {
+      host: '127.0.0.1', port: 5173, strictPort: true,
+      headers: localHeaders,
+    },
+    preview: { host: '127.0.0.1', port: 4173, strictPort: true, headers: localHeaders },
     define: {
       __LMS_DEPLOY_TARGET__: JSON.stringify(target),
       __LMS_SUPABASE_URL__: JSON.stringify(selected.url),
       __LMS_SUPABASE_PUBLISHABLE_KEY__: JSON.stringify(selected.publishableKey),
     },
     build: {
+      outDir: target === 'local' ? 'dist-local' : 'dist',
       rollupOptions: {
         input: {
           index: "index.html",

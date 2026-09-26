@@ -4,8 +4,8 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "dev:staging": "LMS_BUILD_TARGET=staging vite --mode staging",
+    "dev": "LMS_BUILD_TARGET=local vite --mode development",
+    "dev:staging": "LMS_BUILD_TARGET=staging LMS_ALLOW_HOSTED_DEV=staging vite --mode staging",
     "build": "LMS_BUILD_TARGET=production vite build",
     "build:staging": "LMS_BUILD_TARGET=staging vite build --mode staging",
     "vercel-build:production": "node scripts/check-deploy-target.mjs production --deployment && npm run build",
@@ -24,18 +24,26 @@
     "check:deploy-target": "node scripts/check-deploy-target.mjs",
     "check:deploy-target:staging": "node scripts/check-deploy-target.mjs staging",
     "check:deploy-target:production": "node scripts/check-deploy-target.mjs production",
-    "preview": "vite preview",
+    "preview": "vite preview --mode development",
     "test": "vitest run",
     "test:db": "bash scripts/test-db-phase1.sh",
     "test:watch": "vitest",
     "check": "npm test && npm run test:build-targets",
-    "audit": "npm audit --audit-level=high"
+    "audit": "npm audit --audit-level=high",
+    "build:local": "LMS_BUILD_TARGET=local vite build --mode development",
+    "preview:production": "LMS_PREVIEW_TARGET=production vite preview",
+    "preview:staging": "LMS_PREVIEW_TARGET=staging vite preview --mode staging",
+    "local:start": "node scripts/local-supabase.mjs start",
+    "local:setup": "node scripts/local-supabase.mjs setup",
+    "local:functions": "node scripts/local-supabase.mjs functions",
+    "local:migrate": "node scripts/local-supabase.mjs migrate"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.112.3"
   },
   "devDependencies": {
     "jsdom": "29.0.0",
+    "supabase": "2.116.0",
     "vite": "8.2.2",
     "vitest": "4.1.11"
   }

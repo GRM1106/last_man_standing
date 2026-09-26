@@ -107,34 +107,26 @@ export function mergeBuildEnv(processEnv = process.env, dotEnv = {}) {
 /**
  * Resolve the requested build target.
  *
- * Local invocations keep the historic default of `production` so `npm run dev`,
- * `vite build` and `npm run preview` continue to work unchanged. A build running on
- * Vercel (VERCEL=1) is a deployment path, so there the target must be explicit.
- *
- * `requireExplicit` lets a caller narrow that to builds only, so a test or dev-server
- * run that happens inside a Vercel build is not broken by the stricter rule.
+ * Hosted build selection must be explicit, including from a local shell.
+ * Vite handles the separate safe local development target before this guard.
  */
-export function resolveBuildTarget(env = process.env, { requireExplicit } = {}) {
+export function resolveBuildTarget(env = process.env) {
   const declared = token(env.LMS_BUILD_TARGET);
-  const mustBeExplicit = requireExplicit ?? Boolean(token(env.VERCEL));
 
   if (!declared) {
-    if (mustBeExplicit) {
-      throw new DeployTargetError(
-        [
-          "Refusing to build: no LMS_BUILD_TARGET was set for a Vercel build.",
-          "",
-          "  Why this is unsafe : on Vercel there is no safe default. Silently assuming",
-          "                       'production' could embed the production Supabase project",
-          "                       into a deployment of the staging project.",
-          "",
-          "  Safe options:",
-          `    - production : buildCommand ${VERCEL_CONFIG.production.buildCommand}`,
-          `    - staging    : buildCommand ${VERCEL_CONFIG.staging.buildCommand}`,
-        ].join("\n"),
-      );
-    }
-    return "production";
+    throw new DeployTargetError(
+      [
+        "Refusing to build: no LMS_BUILD_TARGET was set for a hosted build.",
+        "",
+        "  Why this is unsafe : on Vercel there is no safe default. Silently assuming",
+        "                       'production' could embed the production Supabase project",
+        "                       into a deployment of the staging project.",
+        "",
+        "  Safe options:",
+        `    - production : buildCommand ${VERCEL_CONFIG.production.buildCommand}`,
+        `    - staging    : buildCommand ${VERCEL_CONFIG.staging.buildCommand}`,
+      ].join("\n"),
+    );
   }
 
   if (!BUILD_TARGETS.includes(declared)) {

@@ -94,16 +94,9 @@ function renderPlayers(players) {
     const controls = document.createElement("div");
     controls.className = "player-controls";
     const status = document.createElement("span");
-    status.className = `status ${player.approved ? "approved" : "pending"}`;
-    status.textContent = player.approved ? "Approved" : "Waiting";
-    const button = document.createElement("button");
-    button.className = `approval-button ${player.approved ? "revoke" : "approve"}`;
-    button.type = "button";
-    button.textContent = player.approved ? "Revoke access" : "Approve player";
-    button.addEventListener("click", () =>
-      setApproval(player, !player.approved, button),
-    );
-    controls.append(status, button);
+    status.className = "status registered";
+    status.textContent = player.is_admin ? "Administrator" : "Registered";
+    controls.append(status);
     row.append(details, controls);
     playerList.append(row);
   });
@@ -112,7 +105,7 @@ async function loadPlayers() {
   const { data, error } = await supabase
     .from("profiles")
     .select(
-      "id,email,display_name,first_name,last_name,approved,is_admin,created_at",
+      "id,email,display_name,first_name,last_name,is_admin,created_at",
     )
     .order("created_at", { ascending: false });
   if (error) {
@@ -122,27 +115,12 @@ async function loadPlayers() {
   allPlayers = data;
   renderPlayers(allPlayers);
 }
-async function setApproval(player, newApproved, button) {
-  button.disabled = true;
-  message.textContent = `${newApproved ? "Approving" : "Revoking access for"} ${playerName(player)}…`;
-  const { error } = await supabase.rpc("set_player_approval", {
-    player_id: player.id,
-    new_approved: newApproved,
-  });
-  if (error) {
-    button.disabled = false;
-    message.textContent = error.message;
-    return;
-  }
-  message.textContent = `${playerName(player)} is now ${newApproved ? "approved" : "waiting for approval"}.`;
-  await loadPlayers();
-}
 function renderPotPlayerOptions() {
   potPlayerOptions.replaceChildren();
   const availablePlayers = allPlayers;
   if (!availablePlayers.length) {
     potPlayerOptions.textContent =
-      "Approve at least one player before creating a pot.";
+      "At least one player must register before you can create a pot.";
     return;
   }
   availablePlayers.forEach((player) => {
@@ -1239,7 +1217,7 @@ async function initialise() {
   const { data, error: playersError } = await supabase
     .from("profiles")
     .select(
-      "id,email,display_name,first_name,last_name,approved,is_admin,created_at",
+      "id,email,display_name,first_name,last_name,is_admin,created_at",
     )
     .order("created_at", { ascending: false });
   if (playersError) {

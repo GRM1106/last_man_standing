@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.112.3";
 import { runSchedulerPipeline } from "../../../server/scheduler-pipeline.js";
+import { schedulerConfig } from "../../../server/environment.js";
 import { createSchedulerOperations } from "../../../server/scheduler-operations.js";
 
 const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, apikey, content-type, x-scheduler-secret" };
@@ -22,10 +23,10 @@ async function authorize(request: Request, source: string, url: string, anonKey:
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (request.method !== "POST") return json({ error: "Method not allowed." }, 405);
-  const url = Deno.env.get("SUPABASE_URL");
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!url || !anonKey || !serviceKey) return json({ error: "Scheduler configuration is incomplete." }, 503);
+  let config;
+  try { config = schedulerConfig(Deno.env.toObject()); }
+  catch { return json({ error: "Scheduler configuration is incomplete or unsafe for this environment." }, 503); }
+  const { url, anonKey, serviceKey } = config;
   let body: { source?: string; season?: string };
   try { body = await request.json(); } catch { return json({ error: "Invalid request." }, 400); }
   const source = body.source === "scheduler" ? "scheduler" : body.source === "local_simulation" ? "local_simulation" : "admin";

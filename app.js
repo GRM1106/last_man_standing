@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
+import { DEPLOY_TARGET, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
 
 const registerView = document.querySelector("#register-view");
 const signInButton = document.querySelector("#google-sign-in");
@@ -7,18 +7,18 @@ const emailForm = document.querySelector("#email-registration");
 const signInForm = document.querySelector("#email-sign-in");
 const modeButton = document.querySelector("#switch-auth-mode");
 const message = document.querySelector("#auth-message");
-const configured = SUPABASE_URL.startsWith("https://") && !SUPABASE_URL.includes("YOUR_") && !SUPABASE_PUBLISHABLE_KEY.includes("YOUR_");
+const configured = (SUPABASE_URL.startsWith("https://") || (DEPLOY_TARGET === "local" && SUPABASE_URL === "http://127.0.0.1:55321")) && !SUPABASE_URL.includes("YOUR_") && !SUPABASE_PUBLISHABLE_KEY.includes("YOUR_");
 const supabase = configured ? createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY) : null;
 
 function showRegistration(){registerView.hidden=false}
-function showWaiting(){window.location.replace("/waiting.html")}
+function showDashboard(){window.location.replace("/dashboard.html")}
 
 async function initialise(){
   if(!supabase){message.textContent="Registration is being connected. Please check back soon.";return}
   const {data,error}=await supabase.auth.getSession();
   if(error){message.textContent="We couldn’t check your registration. Please refresh and try again.";return}
-  data.session?.user?showWaiting(data.session.user):showRegistration();
-  supabase.auth.onAuthStateChange((_event,session)=>session?.user?showWaiting(session.user):showRegistration());
+  data.session?.user?showDashboard(data.session.user):showRegistration();
+  supabase.auth.onAuthStateChange((_event,session)=>session?.user?showDashboard(session.user):showRegistration());
 }
 
 signInButton.addEventListener("click",async()=>{
@@ -42,7 +42,7 @@ emailForm.addEventListener("submit",async(event)=>{
   });
   submitButton.disabled=false;
   if(error){message.textContent=error.message;return}
-  if(data.session)showWaiting(data.user);
+  if(data.session)showDashboard(data.user);
   else{emailForm.reset();message.textContent="Account created. Check your email to confirm your address."}
 });
 
