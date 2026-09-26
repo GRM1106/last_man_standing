@@ -1,0 +1,10 @@
+.membership-panel, .membership-card { border: 1px solid var(--line, #384333); padding: 1rem; margin-block: 1rem; }
+.membership-card h3 { margin-top: 0; }
+.membership-card button, .membership-panel button { margin: .4rem .5rem .4rem 0; }
+.membership-panel label, .membership-card label, .reason-dialog label { display: grid; gap: .5rem; margin-block: .8rem; }
+.membership-panel select, .membership-card select, .reason-dialog textarea, #dashboard-pot { width: 100%; max-width: 100%; padding: .7rem; color: inherit; background: #172017; border: 1px solid #58644d; }
+.reason-dialog { max-width: min(38rem, 94vw); }
+.reason-dialog textarea { box-sizing: border-box; }
+#dashboard-pots > [hidden] { display: none; }
+.dashboard-heading[hidden] { display: none; }
+#dashboard-empty { min-height: 0; padding-top: 3rem; }

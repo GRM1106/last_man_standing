@@ -6,6 +6,7 @@ const client = vi.hoisted(() => ({ auth: { getSession: vi.fn(async () => ({ data
 vi.mock("../admin-client.js", () => ({ supabase: client }));
 let ui;
 beforeEach(async () => {
+  client.rpc.mockReset().mockResolvedValue({ data: false });
   vi.useFakeTimers();
   const dom = new JSDOM(readFileSync(new URL("../admin.html", import.meta.url), "utf8"), { url: "http://localhost/admin.html" });
   vi.stubGlobal("window", dom.window); vi.stubGlobal("document", dom.window.document); vi.stubGlobal("Option", dom.window.Option);
@@ -117,4 +118,35 @@ it("clears a previous round's reset action when the selected pot changes", async
   const reset=document.querySelector("#reset-test-processing"); reset.hidden=false;
   document.querySelector("#pick-pot").dispatchEvent(new window.Event("change"));
   expect(reset.hidden).toBe(true);
+});
+
+it('retains a pot selected while the standings filter query is in flight', async () => {
+  let resolve; const pending=new Promise(r=>resolve=r);
+  const select=document.querySelector('#standings-pot');select.add(new Option('A','a'));select.add(new Option('B','b'));
+  client.from=vi.fn(()=>({select:()=>({order:()=>pending})}));
+  client.rpc.mockResolvedValue({data:{players:[],gameweeks:[]}});
+  const loading=ui.loadStandingsFilters();select.value='b';
+  resolve({data:[{id:'a',name:'A'},{id:'b',name:'B'}]});await loading;
+  expect(select.value).toBe('b');expect(client.rpc).toHaveBeenLastCalledWith('get_pot_standings',{selected_pot_id:'b'});
+});
+it('ignores stale standings errors after a newer pot has rendered', async () => {
+  let resolve;const pending=new Promise(r=>resolve=r);
+  const select=document.querySelector('#standings-pot');select.add(new Option('A','a'));select.add(new Option('B','b'));
+  client.rpc.mockImplementationOnce(()=>pending).mockResolvedValueOnce({data:{players:[{...player,name:'Current player'}],gameweeks:[]}});
+  const first=ui.loadStandings();select.value='b';await ui.loadStandings();resolve({error:{message:'Old failure'}});await first;
+  expect(document.querySelector('#standings-board').textContent).toContain('Current player');expect(document.querySelector('#admin-message').textContent).not.toContain('Old failure');
+});
+it('retains both selected pot and week while pick filters refresh', async () => {
+  let resolve;const pending=new Promise(r=>resolve=r);const pots=document.querySelector('#pick-pot'),weeks=document.querySelector('#pick-gameweek');
+  pots.add(new Option('A','a'));pots.add(new Option('B','b'));weeks.add(new Option('GW2','2'));weeks.add(new Option('GW3','3'));
+  client.from=vi.fn(table=>({select:()=>table==='pots'?{order:()=>pending}:{data:[{pot_id:'b',gameweek_number:2},{pot_id:'b',gameweek_number:3}]}}));
+  client.rpc.mockImplementation(async name=>({data:name==='get_admin_pick_overview'?{players:[],pot_status:'open'}:{deadline:null}}));
+  const loading=ui.loadPickFilters();pots.value='b';weeks.value='3';resolve({data:[{id:'a',name:'A'},{id:'b',name:'B'}]});await loading;
+  expect(pots.value).toBe('b');expect(weeks.value).toBe('3');
+});
+it('ignores an older picks response when the selected pot changes', async () => {
+  let resolve;const pending=new Promise(r=>resolve=r);const pots=document.querySelector('#pick-pot');pots.add(new Option('A','a'));pots.add(new Option('B','b'));document.querySelector('#pick-gameweek').add(new Option('GW1','1'));
+  client.rpc.mockImplementation((name,args)=>name==='get_gameweek_deadline'?Promise.resolve({data:{deadline:null}}):args.selected_pot_id==='a'?pending:Promise.resolve({data:{players:[],pot_status:'open'}}));
+  const loading=ui.loadAdminPicks();pots.value='b';await ui.loadAdminPicks();resolve({error:{message:'Stale failure'}});await loading;
+  expect(document.querySelector('#admin-pick-list').textContent).toContain('No players are assigned');expect(document.querySelector('#admin-message').textContent).not.toContain('Stale failure');
 });

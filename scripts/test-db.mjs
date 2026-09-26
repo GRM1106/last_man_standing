@@ -1,5 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { verifyReviewFreshness } from './verify-review-freshness.mjs';
+import { verifyMembershipRaces } from './verify-membership.mjs';
 import { verifyDraftDeletionRaces } from './verify-draft-deletion.mjs';
 import { verifyProviderFinality } from './verify-provider-finality.mjs';
 import { DisposableDatabase } from './lib/disposable-db.mjs';
@@ -42,7 +44,10 @@ try {
   console.log(db.sql(read('supabase/verification/lms_rpc_authorisation_verification.sql')).trim().split('\n').find(line => line.startsWith('PASS RPC security:')));
   console.log(db.sql(read('supabase/verification/lms_draft_deletion_verification.sql')).trim().split('\n').find(line => line.startsWith('PASS draft deletion:')));
   console.log(db.sql(read('supabase/verification/lms_admin_display_verification.sql')).trim().split('\n').find(line => line.startsWith('PASS admin display:')));
+  console.log(db.sql(read('supabase/verification/lms_membership_verification.sql')).trim().split('\n').find(line => line.startsWith('PASS pot membership:')));
   await verifyDraftDeletionRaces(db);
+  await verifyMembershipRaces(db);
+  await verifyReviewFreshness(db);
   // Existing rollback-based business-rule suites remain executable on the final schema.
   for (const name of [
     'lms_integrity_phase_1_verification.sql', 'lms_phase_2a_verification.sql',

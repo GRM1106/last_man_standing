@@ -1,0 +1,14 @@
+import { readFileSync } from 'node:fs';
+import { JSDOM } from 'jsdom';
+import { beforeEach,afterEach,expect,it,vi } from 'vitest';
+const client=vi.hoisted(()=>({auth:{getSession:vi.fn(()=>new Promise(()=>{}))},rpc:vi.fn()}));
+vi.mock('@supabase/supabase-js',()=>({createClient:()=>client}));
+vi.mock('../config.js',()=>({SUPABASE_URL:'http://127.0.0.1:55321',SUPABASE_PUBLISHABLE_KEY:'test'}));
+let dom,ui;
+const pots=['a','b'].map(id=>({id,name:`Pot ${id}`,payment_status:'unpaid',player_status:'active',entry_fee_pence:1000,buy_back_fee_pence:500}));
+const reply=(name)=>name==='get_my_dashboard'?{data:{pots}}:name==='get_available_pots'?{data:[]}:{error:{message:'Panel is outside this test'}};
+beforeEach(async()=>{vi.useFakeTimers();dom=new JSDOM(readFileSync(new URL('../dashboard.html',import.meta.url),'utf8'),{url:'http://localhost/dashboard.html'});vi.stubGlobal('window',dom.window);vi.stubGlobal('document',dom.window.document);vi.stubGlobal('Option',dom.window.Option);client.rpc.mockImplementation(async name=>reply(name));vi.resetModules();ui=await import('../dashboard.js');});
+afterEach(()=>{vi.clearAllTimers();vi.useRealTimers();dom.window.close();vi.unstubAllGlobals();});
+it('preserves a selection made during a dashboard refresh and hides other pot cards',async()=>{await ui.loadDashboard();let resolve;const pending=new Promise(r=>resolve=r);client.rpc.mockImplementation(name=>name==='get_my_dashboard'?pending:Promise.resolve(reply(name)));const loading=ui.loadDashboard();const select=document.querySelector('#dashboard-pot');select.value='b';ui.selectDashboardPot();resolve({data:{pots:[...pots].reverse()}});await loading;expect(select.value).toBe('b');expect(document.querySelector('[data-pot-id="a"]').hidden).toBe(true);expect(document.querySelector('[data-pot-id="b"]').hidden).toBe(false);});
+it('rejects an older dashboard response after a newer membership load',async()=>{let resolve;const pending=new Promise(r=>resolve=r);client.rpc.mockImplementationOnce(()=>pending);const first=ui.loadDashboard();await ui.loadDashboard();resolve({data:{pots:[]}});await first;expect(document.querySelectorAll('#dashboard-pot option')).toHaveLength(2);expect(document.querySelector('#dashboard-empty').hidden).toBe(true);});
+it('keeps discovery visible for a registered account with no memberships',async()=>{client.rpc.mockImplementation(async name=>name==='get_my_dashboard'?{data:{pots:[],first_name:'New',email:'new@example.test'}}:reply(name));await ui.loadDashboard();expect(document.querySelector('#dashboard-content').hidden).toBe(false);expect(document.querySelector('#dashboard-empty').hidden).toBe(false);expect(document.querySelector('#available-pots').textContent).toContain('Available pots and requests');expect(document.querySelector('#account-email').textContent).toBe('new@example.test');});

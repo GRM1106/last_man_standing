@@ -64,6 +64,12 @@ select pg_temp.check_security('Authenticated function surface matches reviewed e
    and not exists(select 1 from pg_depend d where d.classid='pg_proc'::regclass and d.objid=p.oid and d.deptype='e'))
   = (select array_agg(signature order by signature) from unnest(array[
     'add_player_to_pot(uuid,uuid)',
+    'set_pot_discoverable(uuid,boolean)',
+    'get_available_pots()',
+    'request_pot_membership(uuid)',
+    'decide_pot_membership(uuid,uuid,integer,boolean)',
+    'get_pot_join_requests(uuid)',
+    'get_admin_player_memberships(uuid)',
     'assign_random_missing_picks(uuid,integer,boolean)',
     'claim_buy_back(uuid)',
     'claim_pot_payment(uuid)',

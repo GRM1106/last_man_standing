@@ -1,3 +1,5 @@
+import { openReasonDialog } from './reason-dialog.js';
+import { renderPlayerMemberships, renderPotRequests } from './membership-ui.js';
 import { supabase } from "./admin-client.js";
 import { membershipClosed, standingGap, playerName } from "./admin-display.js";
 import {
@@ -92,6 +94,8 @@ function renderPlayers(players) {
     status.className = "status registered";
     status.textContent = player.is_admin ? "Administrator" : "Registered";
     controls.append(status);
+    const manage = addText(controls, "button", "Manage memberships", "nav-button"); manage.type="button";
+    manage.addEventListener("click",()=>renderPlayerMemberships(document.querySelector("#player-memberships"),{...player,name:playerName(player)},supabase));
     row.append(details, controls);
     playerList.append(row);
   });
@@ -457,10 +461,21 @@ async function loadAdminReviews(pot,panel){
   if(error||!data?.under_review){panel.remove();return;} addText(panel,"h3",`Governed review · ${data.open_count} open`);
   (data.cases||[]).filter(item=>item.status==="open").forEach(item=>{const row=document.createElement("article");addText(row,"strong",item.type.replaceAll("_"," "));addText(row,"p",item.summary);addText(row,"small",`Opened ${new Date(item.opened_at).toLocaleString("en-GB")}`);const resolve=addText(row,"button","Preview resolution","fill-weeks-button");resolve.type="button";resolve.addEventListener("click",()=>previewReviewResolution(item,row,resolve));row.append(resolve);panel.append(row);});
 }
-async function previewReviewResolution(review,row,button){
- button.disabled=true;const {data,error}=await supabase.rpc("preview_lms_review_resolution",{selected_case_id:review.id,selected_action:"confirm_existing",selected_player_ids:null});button.disabled=false;if(error){message.textContent=error.message;return;}
- const reason=window.prompt("Resolution reason (required):");if(!reason)return;const result=await supabase.rpc("resolve_lms_review_case",{selected_case_id:review.id,selected_action:"confirm_existing",resolution_reason:reason,expected_version_token:data.version_token,selected_player_ids:null});
- if(result.error){message.textContent=result.error.message.includes("Review state changed")?"Review state changed; preview again.":result.error.message;return;}message.textContent="Review resolved with an append-only decision record.";await loadPots(message.textContent);
+function previewReviewResolution(review) {
+  return openReasonDialog({
+    title: 'Confirm existing competition outcomes',
+    explanation: `${review.summary} Existing picks, outcomes and winners will be retained. This closes the review with an audited administrator decision.`,
+    async loadPreview() {
+      const {data,error}=await supabase.rpc('preview_lms_review_resolution',{selected_case_id:review.id,selected_action:'confirm_existing',selected_player_ids:null});
+      if(error)throw new Error(error.message);
+      return {...data, description:`Current preview: ${(data.original_winners||[]).length} recorded winners. After this decision the pot will be ${data.pot_after==='review'?'under review':data.pot_after.replaceAll('_',' ')}. Existing outcomes and winners will be retained.`};
+    },
+    async submit(reason,preview) {
+      const {error}=await supabase.rpc('resolve_lms_review_case',{selected_case_id:review.id,selected_action:'confirm_existing',resolution_reason:reason,expected_version_token:preview.version_token,selected_player_ids:null});
+      if(error)throw new Error(error.message.includes('Review state changed')?'Review state changed; preview again.':error.message);
+    },
+    onSuccess:()=>loadPots('Review resolved with an append-only decision record.'),
+  });
 }
 async function loadAdminCompletion(pot,panel){
   const {data,error}=await supabase.rpc("get_pot_completion",{selected_pot_id:pot.id});
@@ -488,6 +503,10 @@ async function loadPots(successMessage = "") {
   addBuyBackControls(potsResult.data, membersResult.data);
   addPotManagement(potsResult.data, membersResult.data, weeksResult.data);
   addTournamentControls(potsResult.data, membersResult.data);
+  document.querySelectorAll('.pot-card').forEach((card,index)=>{
+    const panel=document.createElement('section');panel.className='membership-panel';card.append(panel);
+    renderPotRequests(panel,potsResult.data[index],supabase,loadPots);
+  });
 }
 function setPayment(potId, playerId, select) {
   const row = select.closest(".pot-member"),
@@ -557,23 +576,12 @@ async function setBuyBack(potId, playerId, approved, button) {
     : "Buy-back claim rejected.";
   await loadPots(message.textContent);
 }
-async function revokeBuyBack(potId, playerId, button) {
-  const reason = window.prompt("Reason for revoking this buy-back (required):");
-  if (!reason) return;
-  button.disabled = true;
-  message.textContent = "Revoking the buy-back…";
-  const { error } = await supabase.rpc("revoke_buy_back", {
-    selected_pot_id: potId,
-    selected_player_id: playerId,
-    revoke_reason: reason,
+function revokeBuyBack(potId, playerId) {
+  return openReasonDialog({title:'Revoke buy-back',confirmLabel:'Revoke buy-back',inputLabel:'Reason for revoking this buy-back (required)',explanation:'Revoke this player’s buy-back in this pot. The server checks whether revocation is still permitted and records your reason.',
+    loadPreview:async()=>({description:'This action applies only to the selected player and pot.'}),
+    async submit(reason){const {error}=await supabase.rpc('revoke_buy_back',{selected_pot_id:potId,selected_player_id:playerId,revoke_reason:reason});if(error)throw new Error(error.message);},
+    onSuccess:()=>loadPots('Buy-back revoked and audit history recorded.'),
   });
-  if (error) {
-    message.textContent = error.message;
-    button.disabled = false;
-    return;
-  }
-  message.textContent = "Buy-back revoked and audit history recorded.";
-  await loadPots(message.textContent);
 }
 async function addPlayerToPot(potId, select, button) {
   if (!select.value) {
@@ -979,7 +987,10 @@ function renderAdminDeadline(data) {
     ? "Random picks unlock after the first gameweek fixture begins"
     : "";
 }
+let picksGeneration=0, pickFiltersGeneration=0, standingsGeneration=0, standingsFiltersGeneration=0;
 async function loadAdminPicks(successMessage = "") {
+  const generation=++picksGeneration;
+  const selectedPot=pickPot.value, selectedWeek=pickGameweek.value;
   if (!pickPot.value || !pickGameweek.value) return;
   message.textContent = "Loading locked selections…";
   const [overview, deadline] = await Promise.all([
@@ -992,6 +1003,7 @@ async function loadAdminPicks(successMessage = "") {
       selected_gameweek: Number(pickGameweek.value),
     }),
   ]);
+  if(generation!==picksGeneration || selectedPot!==pickPot.value || selectedWeek!==pickGameweek.value)return;
   const error = overview.error || deadline.error;
   if (error) {
     message.textContent = `Couldn’t load selections: ${error.message}`;
@@ -1003,6 +1015,7 @@ async function loadAdminPicks(successMessage = "") {
   renderAdminDeadline(deadline.data);
 }
 async function loadPickFilters() {
+  const generation=++pickFiltersGeneration;
   message.textContent = "Loading pots…";
   const [potsResult, weeksResult] = await Promise.all([
     supabase
@@ -1011,11 +1024,13 @@ async function loadPickFilters() {
       .order("created_at", { ascending: false }),
     supabase.from("pot_gameweeks").select("pot_id,gameweek_number"),
   ]);
+  if(generation!==pickFiltersGeneration)return;
   const error = potsResult.error || weeksResult.error;
   if (error) {
     message.textContent = `Couldn’t load pots: ${error.message}`;
     return;
   }
+  const selectedPot=pickPot.value;
   pickPot.replaceChildren();
   potsResult.data.forEach((pot) => {
     const option = document.createElement("option");
@@ -1023,7 +1038,10 @@ async function loadPickFilters() {
     option.textContent = `${pot.name} · ${pot.season}`;
     pickPot.append(option);
   });
+  if(potsResult.data.some(pot=>pot.id===selectedPot))pickPot.value=selectedPot;
+  let previousPot=selectedPot;
   const updateWeeks = () => {
+    const selectedWeek=previousPot===pickPot.value?pickGameweek.value:null;previousPot=pickPot.value;
     pickGameweek.replaceChildren();
     weeksResult.data
       .filter((week) => week.pot_id === pickPot.value)
@@ -1034,6 +1052,7 @@ async function loadPickFilters() {
         option.textContent = `GW${week.gameweek_number}`;
         pickGameweek.append(option);
       });
+    if([...pickGameweek.options].some(option=>option.value===selectedWeek))pickGameweek.value=selectedWeek;
     loadAdminPicks();
   };
   pickPot.onchange = updateWeeks;
@@ -1054,7 +1073,7 @@ function renderStandings(data) {
     ).length;
   [
     ["Players", players.length],
-    ["Still standing", active],
+    [players.some(player => player.player_status === "winner") ? "Winners" : "Still standing", players.some(player => player.player_status === "winner") ? players.filter(player => player.player_status === "winner").length : active],
     [
       "Eliminated",
       players.filter((player) => player.player_status === "eliminated").length,
@@ -1122,11 +1141,13 @@ function renderStandings(data) {
   standingsBoard.append(table);
 }
 async function loadStandings() {
+  const generation=++standingsGeneration; const selectedPot=standingsPot.value;
   if (!standingsPot.value) return;
   message.textContent = "Loading standings…";
   const { data, error } = await supabase.rpc("get_pot_standings", {
-    selected_pot_id: standingsPot.value,
+    selected_pot_id: selectedPot,
   });
+  if(generation!==standingsGeneration || selectedPot!==standingsPot.value)return;
   if (error) {
     message.textContent = `Couldn’t load standings: ${error.message}`;
     standingsBoard.replaceChildren();
@@ -1136,15 +1157,18 @@ async function loadStandings() {
   renderStandings(data);
 }
 async function loadStandingsFilters() {
+  const generation=++standingsFiltersGeneration;
   message.textContent = "Loading pots…";
   const { data, error } = await supabase
     .from("pots")
     .select("id,name,season")
     .order("created_at", { ascending: false });
+  if(generation!==standingsFiltersGeneration)return;
   if (error) {
     message.textContent = `Couldn’t load pots: ${error.message}`;
     return;
   }
+  const selectedPot=standingsPot.value;
   standingsPot.replaceChildren();
   data.forEach((pot) => {
     const option = document.createElement("option");
@@ -1152,6 +1176,7 @@ async function loadStandingsFilters() {
     option.textContent = `${pot.name} · ${pot.season}`;
     standingsPot.append(option);
   });
+  if(data.some(pot=>pot.id===selectedPot))standingsPot.value=selectedPot;
   standingsPot.onchange = loadStandings;
   if (data.length) loadStandings();
   else {
@@ -1160,6 +1185,7 @@ async function loadStandingsFilters() {
   }
 }
 function switchView(view) {
+  ++picksGeneration; ++standingsGeneration; ++pickFiltersGeneration; ++standingsFiltersGeneration;
   playersView.hidden = view !== "players";
   potsView.hidden = view !== "pots";
   fixturesView.hidden = view !== "fixtures";
@@ -1306,4 +1332,4 @@ fixtureCorrectionDialog
 fixtureGameweekFilter.addEventListener("change", renderFilteredFixtures);
 fixtureSearch.addEventListener("input", renderFilteredFixtures);
 
-export { renderStandings, renderAdminPicks, addPotManagement, renderPlayers, loadPlayers, loadPots, loadAdminPicks };
+export { renderStandings, renderAdminPicks, addPotManagement, renderPlayers, loadPlayers, loadPots, loadAdminPicks, loadStandings, loadStandingsFilters, loadPickFilters, previewReviewResolution };

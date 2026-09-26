@@ -1,3 +1,4 @@
+import { renderAvailablePots } from './membership-ui.js';
 import { createClient } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
 import {
@@ -523,6 +524,7 @@ function renderPot(pot) {
   card.append(header, quickNav, summary, review, completion, payment);
   if (buyBack.childElementCount) card.append(buyBack);
   card.append(gameweeks, selection, history, standings);
+  card.dataset.potId=pot.id;
   potsContainer.append(card);
   loadPotSelection(pot, selection);
   loadPickHistory(pot, history);
@@ -592,33 +594,35 @@ async function loadPickHistory(pot, panel) {
   });
   panel.append(list);
 }
-async function loadDashboard() {
-  const { data, error } = await supabase.rpc("get_my_dashboard");
-  if (error) {
-    loading.querySelector("h1").textContent = "Couldn’t load your dashboard.";
-    const detail = addText(loading, "p", error.message, "intro");
-    detail.style.fontSize = ".9rem";
-    return;
-  }
-  if (data?.email) {
-    accountName.textContent = data.first_name || "Player";
-    accountEmail.textContent = data.email;
-    accountIdentity.hidden = false;
-  }
-  if (!data?.pots?.length) {
-    loading.hidden = true;
-    empty.hidden = false;
-    return;
-  }
-  loading.hidden = true;
-  content.hidden = false;
-  const { data: providerNotice } = await supabase.rpc("get_player_provider_notice");
-  if (providerNotice) message.textContent = providerNotice;
-  greeting.textContent = "Last Man Standing 26/27 Pots";
-  potCount.textContent = `${data.pots.length} pot${data.pots.length === 1 ? "" : "s"}`;
-  potsContainer.replaceChildren();
-  data.pots.forEach(renderPot);
+const dashboardPot=document.querySelector('#dashboard-pot');
+let dashboardGeneration=0;
+function selectDashboardPot() {
+  for(const card of potsContainer.children)card.hidden=card.dataset.potId!==dashboardPot.value;
 }
+dashboardPot.addEventListener('change',()=>{ message.textContent=''; selectDashboardPot(); });
+async function loadDashboard() {
+  const generation=++dashboardGeneration;
+  const [{data,error},available]=await Promise.all([supabase.rpc('get_my_dashboard'),supabase.rpc('get_available_pots')]);
+  if(generation!==dashboardGeneration)return;
+  if(error){ message.textContent=`Couldn’t load your dashboard: ${error.message}`; content.hidden=false;loading.hidden=true;return; }
+  if(data?.email){accountName.textContent=data.first_name||'Player';accountEmail.textContent=data.email;accountIdentity.hidden=false;}
+  const pots=data?.pots||[];
+  loading.hidden=true;empty.hidden=pots.length>0;content.hidden=false;
+  content.querySelector('.dashboard-heading').hidden=!pots.length;
+  document.querySelector('#dashboard-pot-label').hidden=pots.length<2;
+  const selected=dashboardPot.value;
+  dashboardPot.replaceChildren();for(const pot of pots)dashboardPot.add(new Option(pot.name,pot.id));
+  if(pots.some(pot=>pot.id===selected))dashboardPot.value=selected;
+  greeting.textContent='Your Last Man Standing pots';
+  potCount.textContent=`${pots.length} pot${pots.length===1?'':'s'}`;
+  potsContainer.replaceChildren();pots.forEach(renderPot);selectDashboardPot();
+  if(available.error){document.querySelector('#available-pots').textContent=`Couldn’t load available pots: ${available.error.message}`;}
+  else renderAvailablePots(document.querySelector('#available-pots'),available.data||[],supabase,loadDashboard);
+  const {data:notice}=await supabase.rpc('get_player_provider_notice');
+  if(generation===dashboardGeneration && notice)message.textContent=notice;
+}
+document.querySelector('#refresh-dashboard').addEventListener('click',loadDashboard);
+window.addEventListener('focus',()=>{if(!pickDialog.open)loadDashboard();});
 async function claimPayment(potId, button) {
   button.disabled = true;
   message.textContent = "Saving your payment claim…";
@@ -666,3 +670,5 @@ signOutButton.addEventListener("click", async () => {
   window.location.replace("/");
 });
 initialise();
+
+export { loadDashboard, selectDashboardPot };
