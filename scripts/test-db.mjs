@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { verifyDraftDeletionRaces } from './verify-draft-deletion.mjs';
 import { verifyProviderFinality } from './verify-provider-finality.mjs';
 import { DisposableDatabase } from './lib/disposable-db.mjs';
 import { verifyCriticalFindings, seedHistoricalData, verifyHistoricalData } from './verify-critical-db.mjs';
@@ -39,6 +40,8 @@ try {
   db.sql(read('supabase/verification/lms_open_registration_verification.sql'));
   console.log('PASS open registration: 11 profile, access and authorisation assertions.');
   console.log(db.sql(read('supabase/verification/lms_rpc_authorisation_verification.sql')).trim().split('\n').find(line => line.startsWith('PASS RPC security:')));
+  console.log(db.sql(read('supabase/verification/lms_draft_deletion_verification.sql')).trim().split('\n').find(line => line.startsWith('PASS draft deletion:')));
+  await verifyDraftDeletionRaces(db);
   // Existing rollback-based business-rule suites remain executable on the final schema.
   for (const name of [
     'lms_integrity_phase_1_verification.sql', 'lms_phase_2a_verification.sql',
