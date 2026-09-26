@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { verifyProviderFinality } from './verify-provider-finality.mjs';
 import { DisposableDatabase } from './lib/disposable-db.mjs';
 import { verifyCriticalFindings, seedHistoricalData, verifyHistoricalData } from './verify-critical-db.mjs';
 
@@ -61,6 +62,7 @@ try {
   // Close disposable-only race fixtures before exercising the complete pipeline.
   db.sql("update public.lms_provider_runs set status='failed',completed_at=now() where status='running'; update public.pots set status='complete',lifecycle_status='complete' where season='PHASE2I-RACE';");
   await verifyCriticalFindings(db);
+  await verifyProviderFinality(db);
   console.log('PASS isolated database integration verification.');
 } catch (error) {
   console.error(error.stderr?.toString() || error.stack || error);

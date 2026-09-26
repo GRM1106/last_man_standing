@@ -39,6 +39,9 @@ do $$ declare definition text; marker text:='case when current_override.id is no
  execute definition;
 end $$;
 
+-- FPL final fixtures have both flags true; provisional-only fixtures have
+-- finished=false and finished_provisional=true. Competition assertions are unchanged.
+
 -- Competition-state equality excludes only automation attempt logs, whose waiting
 -- entries are intentional. It includes pick snapshots, membership/buy-back state,
 -- cohorts, team cycles, round processes, collective reinstatement and winner history.
@@ -85,7 +88,7 @@ begin
     gw,case when i=1 then -991001 else -991003 end,case when i=1 then -991002 else -991004 end,now()-interval '1 hour');
  end loop;
  if mixed then
-   update public.football_fixtures set status='finished',started=true,finished=true,finished_provisional=false,
+   update public.football_fixtures set status='finished',started=true,finished=true,finished_provisional=true,
     home_score=2,away_score=0,provider_synced_at=now() where id=fixture-2;
  end if;
  if fixture_state like 'auto_%' then
@@ -105,8 +108,8 @@ begin
  else
    update public.football_fixtures set
     status=case fixture_state when 'scheduled' then 'scheduled' when 'live' then 'live' else 'finished' end,
-    started=fixture_state<>'scheduled',finished=fixture_state not in('scheduled','live'),
-    finished_provisional=fixture_state='provisional',
+    started=fixture_state<>'scheduled',finished=fixture_state not in('scheduled','live','provisional'),
+    finished_provisional=fixture_state not in('scheduled','live'),
     home_score=case when fixture_state in('scheduled','incomplete') then null when fixture_state in('loss','unknown') then 0 when fixture_state='draw' then 1 else 2 end,
     away_score=case when fixture_state in('scheduled','incomplete') then null when fixture_state in('loss','unknown') then 2 when fixture_state='draw' then 1 else 0 end,
     provider_synced_at=now() where id=fixture-1;
@@ -153,7 +156,7 @@ begin
      perform public.create_fixture_result_override(fixture-1,2,0,'finished',
       'Finality regression: genuinely final evidence now available',override_preview->>'effective_version');
    else
-     update public.football_fixtures set status='finished',started=true,finished=true,finished_provisional=false,
+     update public.football_fixtures set status='finished',started=true,finished=true,finished_provisional=true,
       home_score=2,away_score=0,provider_synced_at=now() where id=fixture-1;
    end if;
  end if;
