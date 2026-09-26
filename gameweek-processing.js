@@ -1,8 +1,6 @@
-import { createClient } from "@supabase/supabase-js";
+import { supabase } from "./admin-client.js";
 import { renderMetric } from "./ui.js";
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
 
-const supabase=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 const potSelect=document.querySelector("#pick-pot");
 const gameweekSelect=document.querySelector("#pick-gameweek");
 const reviewButton=document.querySelector("#review-processing");
@@ -39,7 +37,7 @@ async function getPreview(){
   message.textContent="Checking gameweek results…";
   const {data,error}=await supabase.rpc("process_pot_gameweek",{selected_pot_id:potSelect.value,selected_gameweek:Number(gameweekSelect.value),apply_changes:false});
   reviewButton.disabled=false;
-  if(error){message.textContent=`Couldn’t review results: ${error.message}. Run 13 — Gameweek result processing in Supabase.`;return}
+  if(error){message.textContent=`Couldn’t review results: ${error.message}`;return}
   message.textContent="";
   renderPreview(data);
   dialog.showModal();
@@ -54,7 +52,7 @@ async function applyProcessing(event){
   if(error){warning.className="processing-warning";warning.textContent=error.message;confirmButton.disabled=false;confirmButton.textContent="Try again";return}
   dialog.close();
   message.textContent=`GW${data.gameweek_number} processed: ${data.winners+data.postponed} survived and ${data.losers} eliminated.`;
-  gameweekSelect.dispatchEvent(new Event("change"));
+  gameweekSelect.dispatchEvent(new CustomEvent("change", { detail: { message: message.textContent } }));
 }
 
 async function resetTestProcessing(){
@@ -63,7 +61,7 @@ async function resetTestProcessing(){
   resetButton.disabled=false;
   if(error){message.textContent=error.message;return}
   message.textContent=`GW${gameweekSelect.value} test processing reset. Picks for this round were cleared and must be locked again.`;
-  gameweekSelect.dispatchEvent(new Event("change"));
+  gameweekSelect.dispatchEvent(new CustomEvent("change", { detail: { message: message.textContent } }));
 }
 
 async function assignRandomPicks(){
@@ -73,12 +71,12 @@ async function assignRandomPicks(){
     message.textContent="Checking who needs a random pick…";
     const {data,error}=await supabase.rpc("assign_random_missing_picks",{selected_pot_id:potSelect.value,selected_gameweek:Number(gameweekSelect.value),apply_changes:false});
     randomButton.disabled=false;
-    if(error){message.textContent=`Couldn’t review random picks: ${error.message}. Run 16 — Random picks for missing selections in Supabase.`;return}
+    if(error){message.textContent=`Couldn’t review random picks: ${error.message}`;return}
     if(!data.ready){message.textContent=data.problems.join(" ");return}
     randomPreview={potId:potSelect.value,gameweek:gameweekSelect.value};
     randomButton.textContent=`Assign ${data.missing} random pick${data.missing===1?"":"s"} — click again`;
     randomButton.classList.add("random-confirm");
-    message.textContent=`${data.missing} paid active player${data.missing===1?" is":"s are"} missing a pick. Click again to assign at random.`;
+    message.textContent=`${data.missing} eligible player${data.missing===1?" is":"s are"} missing a pick. Click again to assign at random.`;
     setTimeout(()=>{randomPreview=null;randomButton.textContent="Assign missing picks";randomButton.classList.remove("random-confirm")},6000);
     return;
   }
@@ -87,10 +85,10 @@ async function assignRandomPicks(){
   randomButton.disabled=false;randomPreview=null;randomButton.textContent="Assign missing picks";randomButton.classList.remove("random-confirm");
   if(error){message.textContent=error.message;return}
   message.textContent=`${data.assigned} random pick${data.assigned===1?" was":"s were"} assigned with no passes or favours.`;
-  gameweekSelect.dispatchEvent(new Event("change"));
+  gameweekSelect.dispatchEvent(new CustomEvent("change", { detail: { message: message.textContent } }));
 }
 
-function resetRandomPreview(){randomPreview=null;randomButton.textContent="Assign missing picks";randomButton.classList.remove("random-confirm")}
+function resetRandomPreview(){resetButton.hidden=true;preview=null;randomPreview=null;randomButton.textContent="Assign missing picks";randomButton.classList.remove("random-confirm")}
 
 reviewButton.addEventListener("click",getPreview);
 confirmButton.addEventListener("click",applyProcessing);

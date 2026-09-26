@@ -41,6 +41,7 @@ try {
   console.log('PASS open registration: 11 profile, access and authorisation assertions.');
   console.log(db.sql(read('supabase/verification/lms_rpc_authorisation_verification.sql')).trim().split('\n').find(line => line.startsWith('PASS RPC security:')));
   console.log(db.sql(read('supabase/verification/lms_draft_deletion_verification.sql')).trim().split('\n').find(line => line.startsWith('PASS draft deletion:')));
+  console.log(db.sql(read('supabase/verification/lms_admin_display_verification.sql')).trim().split('\n').find(line => line.startsWith('PASS admin display:')));
   await verifyDraftDeletionRaces(db);
   // Existing rollback-based business-rule suites remain executable on the final schema.
   for (const name of [

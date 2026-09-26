@@ -54,10 +54,10 @@ function resultBlock(label, result, className) {
   return block;
 }
 
-export function renderAdminFixtureResults(container, fixtures, onCorrect) {
+export function renderAdminFixtureResults(container, fixtures, onCorrect, hasImportedFixtures = false) {
   container.replaceChildren();
   if (!fixtures.length) {
-    addText(container, "p", "No fixtures imported yet. Use Sync FPL data above.", "fixture-empty");
+    addText(container, "p", hasImportedFixtures ? "No fixtures match these filters." : "No fixtures imported yet. Use Sync football data now above.", "fixture-empty");
     return;
   }
   fixtures.forEach((fixture) => {
