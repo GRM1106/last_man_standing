@@ -32,6 +32,9 @@ try {
     console.log(`APPLIED corrective ${name}`);
   }
   verifyHistoricalData(db);
+  // Exercise readiness through the public entry points after the complete migration chain.
+  db.sql(read('supabase/verification/lms_nullable_finality_verification.sql'));
+  console.log('PASS nullable finality: 18 final-schema scenarios, including retries and GW38.');
   // Existing rollback-based business-rule suites remain executable on the final schema.
   for (const name of [
     'lms_integrity_phase_1_verification.sql', 'lms_phase_2a_verification.sql',
