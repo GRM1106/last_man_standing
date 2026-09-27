@@ -1,3 +1,4 @@
+import { verifyMaintenance } from './verify-maintenance.mjs';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { verifyReviewFreshness } from './verify-review-freshness.mjs';
@@ -75,6 +76,7 @@ try {
   db.sql("update public.lms_provider_runs set status='failed',completed_at=now() where status='running'; update public.pots set status='complete',lifecycle_status='complete' where season='PHASE2I-RACE';");
   await verifyCriticalFindings(db);
   await verifyProviderFinality(db);
+  await verifyMaintenance(db);
   console.log('PASS isolated database integration verification.');
 } catch (error) {
   console.error(error.stderr?.toString() || error.stack || error);

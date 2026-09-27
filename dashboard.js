@@ -1,3 +1,4 @@
+import { watchMaintenance } from './maintenance.js';
 import { readPotPreference, savePotPreference, preferredPot } from './pot-preference.js';
 import { renderAvailablePots } from './membership-ui.js';
 import { createAccountClient } from './account-client.js';
@@ -12,6 +13,7 @@ import {
 import { countdownText, updatePickDeadlineStates } from "./deadline-ui.js";
 
 const { supabase, accountContext } = createAccountClient();
+const maintenance = watchMaintenance(supabase);
 const loading = document.querySelector("#dashboard-loading"),
   empty = document.querySelector("#dashboard-empty"),
   content = document.querySelector("#dashboard-content"),
@@ -715,6 +717,6 @@ signOutButton.addEventListener("click", async () => {
   signOutButton.disabled = true;
   await accountContext.signOut();
 });
-initialise();
+maintenance.ready.then(initialise);
 
 export { loadDashboard, selectDashboardPot };

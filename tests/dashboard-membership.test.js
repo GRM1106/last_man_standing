@@ -1,3 +1,4 @@
+vi.mock('../maintenance.js', () => ({ watchMaintenance: vi.fn(() => ({ ready: Promise.resolve() })) }));
 import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 import { beforeEach,afterEach,expect,it,vi } from 'vitest';

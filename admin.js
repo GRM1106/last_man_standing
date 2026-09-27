@@ -1,3 +1,4 @@
+import { watchMaintenance } from './maintenance.js';
 import { openReasonDialog } from './reason-dialog.js';
 import { renderPlayerMemberships, renderPotRequests } from './membership-ui.js';
 import { supabase, accountContext } from "./admin-client.js";
@@ -12,6 +13,7 @@ import {
 } from "./ui.js";
 import { correctionErrorMessage, filterAdminFixtures, loadAdminFixtureResults, renderAdminFixtureResults, resultScore } from "./fixture-results-ui.js";
 import { syncResultMessage } from "./scheduler-ui.js";
+const maintenance = watchMaintenance(supabase);
 const loading = document.querySelector("#admin-loading"),
   denied = document.querySelector("#admin-denied"),
   content = document.querySelector("#admin-content"),
@@ -1355,7 +1357,7 @@ signOutButton.addEventListener("click", async () => {
   await accountContext.signOut();
 });
 accountContext.onInvalidate(() => { content.hidden = true; denied.hidden = true; });
-initialise();
+maintenance.ready.then(initialise);
 syncFplButton.addEventListener("click", syncFplData);
 testModeToggle.addEventListener("click", toggleTestMode);
 fixtureCorrectionForm.addEventListener("submit", previewFixtureCorrection);

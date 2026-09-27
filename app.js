@@ -1,3 +1,4 @@
+import { watchMaintenance } from './maintenance.js';
 import { createClient } from "@supabase/supabase-js";
 import { DEPLOY_TARGET, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
 
@@ -9,6 +10,8 @@ const modeButton = document.querySelector("#switch-auth-mode");
 const message = document.querySelector("#auth-message");
 const configured = (SUPABASE_URL.startsWith("https://") || (DEPLOY_TARGET === "local" && SUPABASE_URL === "http://127.0.0.1:55321")) && !SUPABASE_URL.includes("YOUR_") && !SUPABASE_PUBLISHABLE_KEY.includes("YOUR_");
 const supabase = configured ? createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY) : null;
+
+const maintenance = supabase ? watchMaintenance(supabase) : null;
 
 function showRegistration(){document.querySelector("#auth-loading").hidden=true;registerView.hidden=false}
 function showDashboard(){window.location.replace("/dashboard.html")}
@@ -73,4 +76,4 @@ modeButton.addEventListener("click",()=>{
 });
 
 document.querySelector("#nav-sign-in").addEventListener("click",()=>{if(signInForm.hidden)modeButton.click();});
-initialise();
+if (maintenance) maintenance.ready.then(initialise); else initialise();

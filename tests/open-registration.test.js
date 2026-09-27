@@ -16,7 +16,7 @@ function page(file, session = null, sessionError = null) {
   };
   const client = { auth, rpc: vi.fn() };
   vm.runInNewContext(source(file).replace(/^import .*;\n/gm, ''), {
-    document: dom.window.document, FormData: dom.window.FormData,
+    watchMaintenance: vi.fn(() => ({ ready: Promise.resolve() })), document: dom.window.document, FormData: dom.window.FormData,
     window: { location: { replace, origin: 'http://127.0.0.1:5173' } },
     createClient: () => client, DEPLOY_TARGET: 'local',
     SUPABASE_URL: 'http://127.0.0.1:55321', SUPABASE_PUBLISHABLE_KEY: 'local-test-key',

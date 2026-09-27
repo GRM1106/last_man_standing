@@ -50,9 +50,10 @@ end $$;
 
 -- Check effective privileges, including PUBLIC/inherited grants, across the whole
 -- application surface. Extensions are excluded by catalogue dependency, not name.
-select pg_temp.check_security('No anonymous application function execution',not exists(
+select pg_temp.check_security('Only public maintenance status permits anonymous execution',not exists(
   select 1 from pg_proc p where p.pronamespace='public'::regnamespace
   and not exists(select 1 from pg_depend d where d.classid='pg_proc'::regclass and d.objid=p.oid and d.deptype='e')
+  and p.oid<>'public.get_lms_maintenance()'::regprocedure
   and has_function_privilege('anon',p.oid,'execute')));
 
 -- Authenticated execution is restricted to the reviewed entry points. An admin
@@ -66,6 +67,7 @@ select pg_temp.check_security('Authenticated function surface matches reviewed e
     'add_player_to_pot(uuid,uuid)',
     'set_pot_discoverable(uuid,boolean)',
     'get_available_pots()',
+    'get_lms_maintenance()',
     'request_pot_membership(uuid)',
     'decide_pot_membership(uuid,uuid,integer,boolean)',
     'get_pot_join_requests(uuid)',
@@ -129,6 +131,7 @@ select set_config('request.jwt.claim.sub','',true);
 do $$ declare f record; args text; begin
   for f in select p.* from pg_proc p where p.pronamespace='public'::regnamespace
     and p.prokind='f' and p.prorettype<>'trigger'::regtype
+    and p.oid<>'public.get_lms_maintenance()'::regprocedure
     and not exists(select 1 from pg_depend d where d.classid='pg_proc'::regclass and d.objid=p.oid and d.deptype='e')
   loop
     select string_agg('null::'||format_type(t,null),',' order by ord) into args
@@ -137,6 +140,7 @@ do $$ declare f record; args text; begin
       format('select public.%I(%s)',f.proname,coalesce(args,'')));
   end loop;
 end $$;
+select pg_temp.check_security('anon maintenance reveals only state',public.get_lms_maintenance()='{"enabled":false}'::jsonb);
 select pg_temp.expect_denied('anon known fixture impact','select public.fixture_override_impact(-926701)');
 select pg_temp.expect_denied('anon unknown fixture impact','select public.fixture_override_impact(999999999)');
 select pg_temp.expect_denied('anon known fixture version','select public.fixture_effective_version(-926701)');
