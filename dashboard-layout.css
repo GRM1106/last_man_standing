@@ -6,7 +6,7 @@
 }
 
 .pot-count-label {
-  color: #b8ff34;
+  color: var(--primary);
   font: inherit;
 }
 
@@ -22,11 +22,11 @@
 }
 
 .account-identity strong {
-  color: #edf2ea;
+  color: var(--ink);
   font-size: .78rem;
 }
 
 .account-identity small {
-  color: #899287;
+  color: var(--muted);
   font-size: .67rem;
 }

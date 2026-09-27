@@ -3,7 +3,7 @@ import { JSDOM } from "jsdom";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { membershipClosed, standingGap, playerName } from "../admin-display.js";
 const client = vi.hoisted(() => ({ auth: { getSession: vi.fn(async () => ({ data: { session: {} } })) }, rpc: vi.fn(async () => ({ data: false })) }));
-vi.mock("../admin-client.js", () => ({ supabase: client }));
+vi.mock("../admin-client.js", () => ({ supabase: client, accountContext: {start: async()=>'alice', onInvalidate: vi.fn(), signOut: vi.fn()} }));
 let ui;
 beforeEach(async () => {
   client.rpc.mockReset().mockResolvedValue({ data: false });

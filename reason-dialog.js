@@ -2,6 +2,7 @@ import { addText } from './ui.js';
 
 // Application dialogue: works without native browser prompts and retains failed input.
 export function openReasonDialog({ title, explanation, loadPreview, submit, onSuccess, confirmLabel = 'Confirm resolution', inputLabel = 'Resolution reason (required)' }) {
+  const opener = document.activeElement;
   const dialog = document.createElement('dialog');
   dialog.className = 'fixture-correction-dialog reason-dialog';
   const form = document.createElement('form');
@@ -20,7 +21,7 @@ export function openReasonDialog({ title, explanation, loadPreview, submit, onSu
   form.append(actions); dialog.append(form); document.body.append(dialog);
   let preview = null, busy = false, saving = false, closed = false;
   const setBusy = value => { busy = value; input.disabled = value; cancel.disabled = saving; refresh.disabled = value; confirm.disabled = value || !preview; };
-  const close = () => { if (saving) return; closed = true; dialog.close(); dialog.remove(); };
+  const close = () => { if (saving) return; closed = true; dialog.close(); dialog.remove(); if (opener?.isConnected) opener.focus(); };
   cancel.addEventListener('click', close);
   dialog.addEventListener('cancel', event => { event.preventDefault(); close(); });
   async function refreshPreview() {
@@ -31,7 +32,7 @@ export function openReasonDialog({ title, explanation, loadPreview, submit, onSu
       previewText.textContent = preview.description || 'Existing outcomes and winners will be retained. The reason and administrator will be recorded.';
       feedback.textContent = '';
     } catch (error) { feedback.textContent = error.message; }
-    finally { setBusy(false); }
+    finally { setBusy(false); if (!closed && document.activeElement === dialog) input.focus(); }
   }
   refresh.addEventListener('click', refreshPreview);
   form.addEventListener('submit', async event => {

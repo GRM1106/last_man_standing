@@ -1,6 +1,6 @@
 import { openReasonDialog } from './reason-dialog.js';
 import { renderPlayerMemberships, renderPotRequests } from './membership-ui.js';
-import { supabase } from "./admin-client.js";
+import { supabase, accountContext } from "./admin-client.js";
 import { membershipClosed, standingGap, playerName } from "./admin-display.js";
 import {
   addImage,
@@ -76,7 +76,10 @@ function renderPlayers(players) {
     playerList.append(empty);
     return;
   }
-  players.forEach((player) => {
+  const query = document.querySelector('#player-search').value.trim().toLocaleLowerCase('en-GB');
+  const matching = players.filter(player => `${playerName(player)} ${player.email}`.toLocaleLowerCase('en-GB').includes(query));
+  if (!matching.length) addText(playerList, 'p', 'No players match your search.', 'empty-list');
+  matching.forEach((player) => {
     const row = document.createElement("article");
     row.className = "player-row";
     const details = document.createElement("div");
@@ -415,6 +418,7 @@ function addTournamentControls(pots, members) {
     const label = document.createElement("strong");
     label.textContent = "Pot status";
     const status = document.createElement("select");
+    status.setAttribute("aria-label", `Status for ${pot.name}`);
     [
       ["draft", "Draft"],
       ["open", "Open for entries"],
@@ -506,6 +510,19 @@ async function loadPots(successMessage = "") {
   document.querySelectorAll('.pot-card').forEach((card,index)=>{
     const panel=document.createElement('section');panel.className='membership-panel';card.append(panel);
     renderPotRequests(panel,potsResult.data[index],supabase,loadPots);
+    const header=card.querySelector('header');
+    const weeks=card.querySelector('.pot-weeks');
+    const completion=card.querySelector('.completion-summary');
+    const review=card.querySelector('.admin-review-panel');
+    const members=card.querySelector('.pot-member-list');
+    const membership=document.createElement('details'); membership.className='pot-section';
+    addText(membership,'summary',`Players, memberships & payments (${members.children.length})`);
+    membership.append(members,card.querySelector('.pot-management'),panel);
+    const operations=document.createElement('details'); operations.className='pot-section';
+    addText(operations,'summary','Tournament controls & operations');
+    operations.append(card.querySelector('.tournament-controls'),card.querySelector('.automation-panel'));
+    card.prepend(header,weeks,completion,review);
+    card.append(membership,operations);
   });
 }
 function setPayment(potId, playerId, select) {
@@ -1184,7 +1201,28 @@ async function loadStandingsFilters() {
     standingsBoard.replaceChildren();
   }
 }
+let overviewGeneration = 0;
+async function loadOverview() {
+  const generation = ++overviewGeneration;
+  const panel = document.querySelector('#overview-metrics');
+  panel.textContent = 'Loading competition summary…';
+  const [pots, players] = await Promise.all([
+    supabase.from('pots').select('id,status,review_status'),
+    supabase.from('profiles').select('id'),
+  ]);
+  const {data} = pots;
+  const error = pots.error || players.error;
+  if (generation !== overviewGeneration || document.querySelector('#overview-view').hidden) return;
+  panel.replaceChildren();
+  if (error) { addText(panel, 'p', `Couldn’t load competition summary: ${error.message}`, 'field-help'); return; }
+  playerCount.textContent = players.data.length;
+  renderMetric(panel, 'Registered players', players.data.length);
+  renderMetric(panel, 'Open pots', data.filter(pot => pot.status === 'open').length);
+  renderMetric(panel, 'Pots needing review', data.filter(pot => pot.review_status === "needs_review").length);
+}
 function switchView(view) {
+  ++overviewGeneration;
+  document.querySelector('#overview-view').hidden = view !== 'overview';
   ++picksGeneration; ++standingsGeneration; ++pickFiltersGeneration; ++standingsFiltersGeneration;
   playersView.hidden = view !== "players";
   potsView.hidden = view !== "pots";
@@ -1201,12 +1239,18 @@ function switchView(view) {
           : view === "standings"
             ? "Standings"
             : "Players";
-  document
-    .querySelectorAll(".admin-tab")
-    .forEach((tab) =>
-      tab.classList.toggle("active", tab.dataset.view === view),
-    );
-  if (view === "pots") {
+  if (view === 'overview') adminTitle.textContent = 'Overview';
+  if (view === 'picks') adminTitle.textContent = 'Picks & results';
+  if (view === 'fixtures') adminTitle.textContent = 'Reviews & operations';
+  document.querySelectorAll('.admin-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.view === view);
+    if (tab.dataset.view === view) tab.setAttribute('aria-current', 'page');
+    else tab.removeAttribute('aria-current');
+  });
+  if (view === "overview") {
+    countLabel.textContent = "registered";
+    loadOverview();
+  } else if (view === "pots") {
     loadPlayers().then(() => { renderPotPlayerOptions(); loadPots(); });
   } else if (view === "fixtures") loadFixtures();
   else if (view === "picks") loadPickFilters();
@@ -1217,13 +1261,7 @@ function switchView(view) {
   }
 }
 async function initialise() {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) {
-    window.location.replace("/");
-    return;
-  }
+  if (!(await accountContext.start())) return;
   const { data: isAdmin, error } = await supabase.rpc("is_current_user_admin");
   if (error) {
     loading.hidden = true;
@@ -1251,12 +1289,15 @@ async function initialise() {
   allPlayers = data;
   renderPlayers(allPlayers);
   buildGameweekGrid();
+  switchView("overview");
 }
 document
   .querySelectorAll(".admin-tab")
   .forEach((tab) =>
     tab.addEventListener("click", () => switchView(tab.dataset.view)),
   );
+document.querySelector("#player-search").addEventListener("input", () => renderPlayers(allPlayers));
+document.querySelectorAll("[data-workspace]").forEach(button => button.addEventListener("click", () => { switchView(button.dataset.workspace); adminTitle.tabIndex=-1; adminTitle.focus(); }));
 showPotFormButton.addEventListener("click", () => {
   potForm.hidden = false;
   showPotFormButton.hidden = true;
@@ -1311,9 +1352,9 @@ potForm.addEventListener("submit", async (event) => {
 });
 signOutButton.addEventListener("click", async () => {
   signOutButton.disabled = true;
-  await supabase.auth.signOut();
-  window.location.replace("/");
+  await accountContext.signOut();
 });
+accountContext.onInvalidate(() => { content.hidden = true; denied.hidden = true; });
 initialise();
 syncFplButton.addEventListener("click", syncFplData);
 testModeToggle.addEventListener("click", toggleTestMode);

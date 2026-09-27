@@ -1,5 +1,7 @@
 import { addText } from './ui.js';
 const generations = new WeakMap();
+const openers = new WeakMap();
+const statusLabel = value => value ? value.replaceAll("_", " ").replace(/^./, letter => letter.toUpperCase()) : "—";
 const money = pence => new Intl.NumberFormat('en-GB', { style:'currency', currency:'GBP' }).format(pence / 100);
 const button = (parent, text) => { const b=addText(parent,'button',text,'nav-button'); b.type='button'; return b; };
 async function rpc(client, name, args) { const result=await client.rpc(name,args); if(result.error) throw new Error(result.error.message); return result.data; }
@@ -15,9 +17,12 @@ function requestControls(parent, request, client, reload, feedback) {
   }),reload,feedback);
 }
 export async function renderPlayerMemberships(target, player, client, success='') {
+  if (target.hidden) openers.set(target, document.activeElement);
   const generation=(generations.get(target)||0)+1; generations.set(target,generation);
   target.hidden=false; target.replaceChildren();
-  addText(target,'h2',`${player.name} — pot memberships`);
+  const heading=addText(target,'h2',`${player.name} — pot memberships`);
+  heading.tabIndex=-1; heading.focus();
+  button(target,'Close player details').addEventListener('click',()=>{ generations.set(target,generation+1);target.hidden=true;const opener=openers.get(target);if(opener?.isConnected)opener.focus(); });
   addText(target,'p',`${player.email} · ${player.is_admin?'Administrator':'Registered account'}`);
   const feedback=addText(target,'p',success||'Loading memberships…','admin-message'); feedback.setAttribute('role','status');
   const reload=text=>generations.get(target)===generation ? renderPlayerMemberships(target,player,client,text) : undefined;
@@ -29,8 +34,8 @@ export async function renderPlayerMemberships(target, player, client, success=''
   feedback.textContent=success;
   for(const m of data.memberships) {
     const row=document.createElement('article'); row.className='membership-card';
-    addText(row,'h3',m.name); addText(row,'p',`${m.season} · ${m.pot_status} · ${m.player_status}`);
-    addText(row,'p',`Buy-back: ${m.buy_back_status} · Payment: ${m.buy_back_payment_status}`);
+    addText(row,'h3',m.name); addText(row,'p',`${m.season} · ${statusLabel(m.pot_status)} · ${statusLabel(m.player_status)}`);
+    addText(row,'p',`Buy-back: ${statusLabel(m.buy_back_status)} · Payment: ${statusLabel(m.buy_back_payment_status)}`);
     const label=document.createElement('label'); label.textContent='Entry payment';
     const select=document.createElement('select'); select.setAttribute('aria-label',`Entry payment for ${m.name}`);
     for(const [value,text] of [['unpaid','Not paid'],['claimed','Player says paid'],['paid','Paid']])select.add(new Option(text,value));
@@ -69,7 +74,7 @@ export function renderAvailablePots(target,pots,client,refresh) {
   target.replaceChildren();addText(target,'h2','Available pots and requests');
   addText(target,'p','Request a place in an open pot. Your organiser decides membership; your account remains available.');
   if(!pots.length)addText(target,'p','No pots are available to request at the moment. Your organiser can also assign you directly.');
-  for(const pot of pots){const row=document.createElement('article');row.className='membership-card';addText(row,'h3',pot.name);addText(row,'p',`${pot.season} · ${money(pot.entry_fee_pence)} entry · ${money(pot.buy_back_fee_pence)} buy-back`);
+  for(const pot of pots){const row=document.createElement('article');row.className='membership-card discovery-card';addText(row,'span',pot.state==='pending'?'Awaiting organiser':pot.state==='declined'?'Request declined':pot.state==='unavailable'?'Joining closed':'Open for requests','discovery-state');addText(row,'h3',pot.name);addText(row,'p',`${pot.season} · ${money(pot.entry_fee_pence)} entry · ${money(pot.buy_back_fee_pence)} buy-back`);
     const feedback=addText(row,'p','','admin-message');feedback.setAttribute('role','status');
     if(pot.state==='pending')addText(row,'p','Request pending — your organiser will review it.');
     else if(pot.state==='unavailable')addText(row,'p',pot.request_status==='pending'?'This pot is no longer available to join. Your earlier request is still recorded for the organiser.':'This pot is no longer available to join.');
