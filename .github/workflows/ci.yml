@@ -36,3 +36,43 @@ jobs:
 
       - name: Run JavaScript and build-target checks
         run: npm run check
+
+  database:
+    name: Disposable SQL and RLS regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The runner accepts no database URL: only its UUID-labelled, network-none
+      # container and marked database can receive migrations or test mutations.
+      - name: Prepare disposable database image
+        run: docker pull public.ecr.aws/supabase/postgres:17.6.1.165
+
+      - name: Run database, RPC, RLS and scheduler regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p test-evidence
+          npm run test:db 2>&1 | tee test-evidence/sql.log
+
+      - name: Publish SQL verification summary
+        if: always()
+        shell: bash
+        run: |
+          if test -f test-evidence/sql.log; then
+            sed -n '/^PASS /p; /^ERROR:/p; /^REFUSED:/p' test-evidence/sql.log >> "$GITHUB_STEP_SUMMARY"
+          fi

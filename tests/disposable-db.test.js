@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { assertOwnedContainer, DisposableDatabase, OWNER_LABEL, TEST_IMAGE } from '../scripts/lib/disposable-db.mjs';
 
 const token = '12345678-1234-1234-1234-123456789abc';
 const id = 'a'.repeat(64);
 const spec = { token, id };
 const owned = () => ({ Id: id, Name: `/lms-db-test-${token}`, Config: { Image: TEST_IMAGE, Labels: { [OWNER_LABEL]: token } }, HostConfig: { NetworkMode: 'none', Binds: null, Tmpfs: { '/var/lib/postgresql/data': 'rw' } }, Mounts: [] });
+afterEach(() => vi.unstubAllEnvs());
 const unsafeMetadata = [
   ['missing bind metadata', i => { delete i.HostConfig.Binds; }],
   ['mistyped bind metadata', i => { i.HostConfig.Binds = {}; }],
@@ -27,6 +28,30 @@ const unsafeMetadata = [
 ];
 
 describe('disposable database ownership guard', () => {
+  it('ignores hosted connection settings and caller targets for destructive SQL', async () => {
+    vi.stubEnv('DATABASE_URL', 'postgresql://example.invalid/hosted');
+    vi.stubEnv('PGHOST', 'example.invalid');
+    vi.stubEnv('PGDATABASE', 'hosted');
+    const db = new DisposableDatabase({ log: vi.fn(), database: 'hosted', connectionString: process.env.DATABASE_URL });
+    const info = owned(); info.Name = `/${db.name}`; info.Config.Labels[OWNER_LABEL] = db.token;
+    db.docker = vi.fn(args => {
+      if (args[0] === 'create') return id;
+      if (args[0] === 'inspect') return JSON.stringify([info]);
+      if (args.includes('select current_database()')) throw new Error('Unexpected query shape');
+      if (args.some(x => String(x).includes('shobj_description'))) return `${db.database}:lms-db-test:${db.token}`;
+      return '';
+    });
+    await db.start();
+    db.sql('drop schema public cascade;');
+    const create = db.docker.mock.calls.find(([args]) => args[0] === 'create')[0];
+    expect(create).toContain('none');
+    const execs = db.docker.mock.calls.filter(([args]) => args[0] === 'exec').map(([args]) => args);
+    expect(execs.every(args => !args.join(' ').includes('example.invalid') && !args.includes('hosted'))).toBe(true);
+    expect(execs.at(-1)).toContain(db.database);
+    expect(db.database).toMatch(/^lms_test_[0-9a-f]{32}$/);
+    db.cleanup();
+    expect(db.docker.mock.calls.at(-1)[0]).toEqual(['rm', '--force', '--volumes', id]);
+  });
   it('accepts only the exact runner-created identity', () => expect(() => assertOwnedContainer(owned(), spec)).not.toThrow());
   it('accepts only conventionally named volume metadata at the database path', () => {
     const info = owned();
