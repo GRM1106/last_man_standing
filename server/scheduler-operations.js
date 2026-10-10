@@ -19,7 +19,8 @@ export function createSchedulerOperations(database, actorId = null) {
       return data;
     },
     async fail(runId, classification, retryable) {
-      await database.rpc('fail_lms_provider_run', { run_id: runId, failure_class: classification, is_retryable: retryable });
+      const { error } = await database.rpc('fail_lms_provider_run', { run_id: runId, failure_class: classification, is_retryable: retryable });
+      if (error) throw error;
     },
   };
 }

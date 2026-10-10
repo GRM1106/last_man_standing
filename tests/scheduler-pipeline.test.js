@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fetchFplData, ProviderError, validateAndProjectFplPayload } from "../server/fpl-provider.js";
 import { runSchedulerPipeline } from "../server/scheduler-pipeline.js";
+import { createSchedulerOperations } from '../server/scheduler-operations.js';
 import { readFileSync } from "node:fs";
 
 const teams = [{ id: 1, code: 10, name: "Alpha", short_name: "ALP" }, { id: 2, code: 20, name: "Beta", short_name: "BET" }];
@@ -9,6 +10,24 @@ const jsonResponse = (value, status = 200) => ({ ok: status >= 200 && status < 3
 const fetchSuccess = () => vi.fn().mockResolvedValueOnce(jsonResponse({ teams })).mockResolvedValueOnce(jsonResponse(fixtures));
 
 describe("scheduler provider boundary", () => {
+  it.each(['returned RPC error', 'rejected connection'])('retains both processing and persistence failure for a %s', async kind => {
+    const persistenceError = new Error('Synthetic database outage');
+    const processingError = new Error('Synthetic partial ingestion failure');
+    const database = { rpc: vi.fn(async name => {
+      if (name === 'claim_lms_provider_run') return { data: { acquired: true, run_id: 'run-1' }, error: null };
+      if (name === 'complete_lms_provider_run') return { data: null, error: processingError };
+      if (kind === 'returned RPC error') return { data: null, error: persistenceError };
+      throw persistenceError;
+    }) };
+    const operations = createSchedulerOperations(database);
+    const failure = await runSchedulerPipeline({ source: 'scheduler', season: '2026/27', operations,
+      fetchOptions: { fetchImpl: fetchSuccess(), retries: 0 } }).catch(error => error);
+    expect(failure).toMatchObject({ name: 'SchedulerFailurePersistenceError', cause: processingError, persistenceError });
+    expect(database.rpc.mock.calls.filter(([name]) => name === 'fail_lms_provider_run')).toEqual([
+      ['fail_lms_provider_run', { run_id: 'run-1', failure_class: 'platform', is_retryable: false }],
+    ]);
+    expect(database.rpc.mock.calls.filter(([name]) => name === 'complete_lms_provider_run')).toHaveLength(1);
+  });
   it("rejects malformed and partial provider payloads before ingestion", () => {
     expect(() => validateAndProjectFplPayload({ teams }, [{ ...fixtures[0], team_a: 99 }])).toThrow(ProviderError);
     expect(() => validateAndProjectFplPayload({ teams }, [])).toThrow("fixtures collection");

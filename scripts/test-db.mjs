@@ -5,6 +5,7 @@ import { verifyReviewFreshness } from './verify-review-freshness.mjs';
 import { verifyMembershipRaces } from './verify-membership.mjs';
 import { verifyDraftDeletionRaces } from './verify-draft-deletion.mjs';
 import { verifyProviderFinality } from './verify-provider-finality.mjs';
+import { verifyWave1 } from './verify-wave1.mjs';
 import { DisposableDatabase } from './lib/disposable-db.mjs';
 import { verifyCriticalFindings, seedHistoricalData, verifyHistoricalData } from './verify-critical-db.mjs';
 
@@ -76,6 +77,7 @@ try {
   db.sql("update public.lms_provider_runs set status='failed',completed_at=now() where status='running'; update public.pots set status='complete',lifecycle_status='complete' where season='PHASE2I-RACE';");
   await verifyCriticalFindings(db);
   await verifyProviderFinality(db);
+  verifyWave1(db);
   await verifyMaintenance(db);
   console.log('PASS isolated database integration verification.');
 } catch (error) {

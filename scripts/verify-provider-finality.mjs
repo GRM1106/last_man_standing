@@ -11,10 +11,15 @@ const teams = [1, 2, 3, 4].map(id => ({ id, code: id, name: `Finality ${id}`, sh
 const season = 'PROVIDER-FINALITY';
 
 export async function verifyProviderFinality(db) {
-  const rpc = (name, args, service = true) => JSON.parse(db.sql(`begin;
+  const rpc = (name, args, service = true) => {
+    const output = db.sql(`begin;
     set local role ${service ? 'service_role' : 'authenticated'};
     set local "request.jwt.claims"=${q(service ? { role: 'service_role' } : { role: 'authenticated', sub: admin })};
-    select public.${name}(${Object.entries(args).map(([key, value]) => `${key} => ${q(value)}`).join(',')}); commit;`).trim());
+    select public.${name}(${Object.entries(args).map(([key, value]) => `${key} => ${q(value)}`).join(',')}); commit;`).trim();
+    // PostgreSQL void displays as an empty psql field; the SDK returns null.
+    // Do not fabricate a connectivity error after successful failure recording.
+    return output === '' ? null : JSON.parse(output);
+  };
   const pipeline = fixtures => runSchedulerPipeline({ source: 'scheduler', season,
     operations: createSchedulerOperations({ async rpc(name, args) {
       try { return { data: rpc(name, args), error: null }; } catch (error) { return { data: null, error }; }
@@ -71,6 +76,8 @@ export async function verifyProviderFinality(db) {
           await pipeline([final, input]);
         } else {
           await assert.rejects(pipeline([final, input]), /Provider fixture shape is invalid/);
+          assert.equal(db.sql('select last_error_class from public.lms_provider_state where singleton').trim(), 'validation');
+          assert.equal(db.sql("select count(*) from public.lms_provider_runs where status='running'").trim(), '0', 'validation failure is durably recorded');
         }
         assert.equal(snapshot(), before, 'uncertain evidence must preserve picks, membership, round and completion history');
         cases++;

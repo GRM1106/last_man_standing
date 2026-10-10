@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.112.3";
-import { runSchedulerPipeline } from "../../../server/scheduler-pipeline.js";
+import { runSchedulerPipeline, schedulerFailureReport } from "../../../server/scheduler-pipeline.js";
 import { schedulerConfig } from "../../../server/environment.js";
 import { createSchedulerOperations } from "../../../server/scheduler-operations.js";
 
@@ -39,5 +39,8 @@ Deno.serve(async (request) => {
       timeoutMs: Number(Deno.env.get("LMS_PROVIDER_TIMEOUT_MS") || 10_000), retries: Number(Deno.env.get("LMS_PROVIDER_RETRIES") || 2)
     } });
     return json(result, result.status === "skipped" ? 202 : 200);
-  } catch { return json({ error: "Football data refresh failed safely." }, 502); }
+  } catch (error) {
+    console.error(JSON.stringify(schedulerFailureReport(error)));
+    return json({ error: "Football data refresh failed safely." }, 502);
+  }
 });

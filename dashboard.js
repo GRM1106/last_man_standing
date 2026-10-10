@@ -306,9 +306,10 @@ async function confirmPick(pot, fixture, team, button) {
   message.textContent = `${team.name} is confirmed and locked.`;
   await loadDashboard();
 }
-function renderPlayerStandings(data, panel) {
+function renderPlayerStandings(data, panel, complete = false) {
   panel.replaceChildren();
-  addText(panel, "h3", "Pot standings");
+  addText(panel, "h3", complete ? "Recorded standings" : "Pot standings");
+  if (complete) addText(panel, "p", "These standings preserve original round outcomes. The current winner decision is shown in the results above.", "standings-player-note");
   addText(
     panel,
     "p",
@@ -380,7 +381,7 @@ async function loadPlayerStandings(pot, panel) {
     );
     return;
   }
-  renderPlayerStandings(data, panel);
+  renderPlayerStandings(data, panel, pot.status === "complete");
 }
 function renderPot(pot) {
   const card = document.createElement("article");
@@ -398,7 +399,7 @@ function renderPot(pot) {
   addText(
     header,
     "span",
-    pot.player_status === "active" && ["requested", "confirmed"].includes(pot.buy_back_status) ? "Re-entered" : titleCase(pot.player_status),
+    pot.status === "complete" ? `Original result: ${titleCase(pot.player_status)}` : pot.player_status === "active" && ["requested", "confirmed"].includes(pot.buy_back_status) ? "Re-entered" : titleCase(pot.player_status),
     `pot-player-status ${pot.player_status}`,
   );
   header.prepend(title);
@@ -408,7 +409,7 @@ function renderPot(pot) {
   completion.className = "completion-summary";
   const review = document.createElement("section"); review.className="review-banner";
   [
-    ["Player status", titleCase(pot.player_status)],
+    [pot.status === "complete" ? "Original player status" : "Player status", titleCase(pot.player_status)],
     ["Buy-back", titleCase(pot.buy_back_status)],
   ].forEach(([label, value]) => {
     const item = document.createElement("div");
@@ -565,14 +566,51 @@ async function loadPlayerReviewState(pot,panel){
   addText(panel,"p","This pot is under review because a match result or competition decision changed. Picks and history remain safe while the organiser resolves it.");
 }
 async function loadPotCompletion(pot, panel) {
-  const { data, error } = await supabase.rpc("get_pot_completion", { selected_pot_id: pot.id });
-  if (error || !data) { panel.remove(); return; }
-  const names=(data.winners||[]).map(winner=>winner.name);
+  const generation = dashboardGeneration;
+  const accountId = dashboardAccountId;
+  panel.replaceChildren();
+  addText(panel, 'p', 'Checking the current result…', 'selection-note');
+  // Original completion is immutable history. Only the member-safe projection
+  // may supply a revised decision; never fetch private review ledger rows.
+  const replies = await Promise.allSettled([
+    supabase.rpc('get_pot_completion', { selected_pot_id: pot.id }),
+    supabase.rpc('get_my_pot_review_outcome', { selected_pot_id: pot.id }),
+  ]);
+  if (generation !== dashboardGeneration || !panel.isConnected || !accountContext.isCurrent(accountId)) return;
+  if (await accountContext.currentAccount() !== accountId) return;
+  if (generation !== dashboardGeneration || !panel.isConnected || !accountContext.isCurrent(accountId)) return;
+  panel.replaceChildren();
+  if (replies.some(reply => reply.status === 'rejected' || reply.value?.error
+    || !reply.value || !Object.hasOwn(reply.value, 'data') || reply.value.data === undefined)) {
+    addText(panel, 'p', 'Couldn’t verify the current result. Refresh your dashboard to try again.', 'selection-note warning');
+    return;
+  }
+  const original = replies[0].value?.data;
+  const revised = replies[1].value?.data;
+  if (original === null && revised === null) { panel.remove(); return; }
+  const data = revised ?? original;
+  const validWinners = Array.isArray(data?.winners) && data.winners.length > 0
+    && data.winners.every(winner => winner !== null && typeof winner === 'object' && !Array.isArray(winner)
+      && typeof winner.name === 'string' && winner.name.trim()
+      && Number.isInteger(winner.prize_share_pence) && winner.prize_share_pence >= 0);
+  if (!validWinners || !Number.isInteger(data.total_prize_pence) || data.total_prize_pence < 0
+    || (revised && (!Number.isInteger(revised.revision) || revised.revision < 1))) {
+    addText(panel, 'p', 'Couldn’t verify the current result. Refresh your dashboard to try again.', 'selection-note warning');
+    return;
+  }
+  const names=data.winners.map(winner=>winner.name);
   addText(panel,"h3",`${names.length===1?"Winner":"Winners"}: ${names.join(", ")}`);
   addText(panel,"strong",`Prize pot: ${money(data.total_prize_pence)}`);
-  addText(panel,"p",`${data.winner_count} winner${data.winner_count===1?"":"s"}`);
-  const mine=(data.winners||[]).find(winner=>winner.is_me);
+  addText(panel,"p",`${names.length} winner${names.length===1?"":"s"}`);
+  const mine=data.winners.find(winner=>winner.is_me === true);
   if(mine) addText(panel,"p",`Your share: ${money(mine.prize_share_pence)}`);
+  if (revised) {
+    addText(panel, 'strong', `Revised result · Revision ${revised.revision}`);
+    const decided = new Date(revised.decided_at);
+    if (Number.isFinite(decided.getTime())) addText(panel, 'p', `Decided ${decided.toLocaleString('en-GB', { timeZone: 'Europe/London' })}.`);
+    addText(panel, 'p', 'The organiser revised the winner decision. Original results remain recorded.');
+    return;
+  }
   const explanation=data.resolution_rule==="gw38_buyback_eligible_split"
     ? "GW38 finished with no surviving picks. Players with an unused buy-back shared the pot."
     : data.resolution_rule==="gw38_all_lost_split" ? "GW38 finished with no surviving picks, so the final cohort shared the pot." : "The GW38 surviving pick or picks won the pot.";

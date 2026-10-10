@@ -6,6 +6,22 @@ const claim = { acquired: true, run_id: "run-1" };
 const databaseStub = () => ({ rpc: vi.fn().mockResolvedValue({ data: claim, error: null }) });
 
 describe("scheduler actor adapter", () => {
+  it('detects a resolved failure-recording RPC error', async () => {
+    const error = { message: 'Synthetic persistence rejection' };
+    const database = { rpc: vi.fn().mockResolvedValue({ data: null, error }) };
+    await expect(createSchedulerOperations(database).fail('run-1', 'timeout', true)).rejects.toBe(error);
+    expect(database.rpc).toHaveBeenCalledExactlyOnceWith('fail_lms_provider_run', { run_id: 'run-1', failure_class: 'timeout', is_retryable: true });
+  });
+  it('records failure successfully without changing run identity or retry classification', async () => {
+    const database = { rpc: vi.fn().mockResolvedValue({ data: { status: 'failed' }, error: null }) };
+    await expect(createSchedulerOperations(database).fail('run-1', 'network', true)).resolves.toBeUndefined();
+    expect(database.rpc).toHaveBeenCalledExactlyOnceWith('fail_lms_provider_run', { run_id: 'run-1', failure_class: 'network', is_retryable: true });
+  });
+  it('propagates a rejected connection during failure recording', async () => {
+    const error = new Error('Synthetic connection failure');
+    const database = { rpc: vi.fn().mockRejectedValue(error) };
+    await expect(createSchedulerOperations(database).fail('run-1', 'platform', false)).rejects.toBe(error);
+  });
   it.each([undefined, null])("uses the system claim when actorId is %s", async (actorId) => {
     const database = databaseStub();
     await expect(createSchedulerOperations(database, actorId).claim("scheduler")).resolves.toEqual(claim);
