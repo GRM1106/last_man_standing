@@ -42,8 +42,9 @@ or drive the CLI yourself.
 `npm run check:deploy-target[:staging|:production]` still exists for a read-only check on
 its own, but you no longer have to remember it.
 
-`npm run dev`, `npm run preview`, `npm run build` and `npm run build:staging` are
-unaffected — they are ordinary builds, not deployments.
+`npm run dev` and `npm run preview` now use isolated local services and local bundles.
+`npm run build` explicitly selects production; `npm run build:staging` explicitly selects
+staging. Building does not deploy. See README.md for local setup and explicit hosted previews.
 
 ## What the guard checks
 
@@ -58,10 +59,10 @@ belong to each target. `vite.config.js`, `scripts/check-deploy-target.mjs`,
    `npm run deploy:*` — uses the *deployment rule*: the target must be **positively
    proven**. Absence of evidence is itself a failure there, because a deployment must
    identify where it is going.
-1. **Explicit target.** `LMS_BUILD_TARGET` must be `production` or `staging`. A local
-   build still defaults to `production` so existing workflows are unchanged, but a build
-   running on Vercel (`VERCEL=1`) must state its target — there is no safe default on a
-   deployment path.
+1. **Explicit target.** Hosted builds must name `production` or `staging` through
+   `LMS_BUILD_TARGET`; the hosted resolver never supplies a production default. Vite
+   handles `local` separately and requires local public configuration. Vercel refuses
+   a local target. Existing package build commands name their hosted targets explicitly.
 2. **Supabase isolation.** Each target resolves to its own project URL, and a staging
    build still fails closed without `LMS_STAGING_SUPABASE_PUBLISHABLE_KEY`.
 3. **Config/target agreement.** Each Vercel config must name its own build command and

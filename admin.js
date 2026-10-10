@@ -1,5 +1,8 @@
-import { createClient } from "@supabase/supabase-js";
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
+import { watchMaintenance } from './maintenance.js';
+import { openReasonDialog } from './reason-dialog.js';
+import { renderPlayerMemberships, renderPotRequests } from './membership-ui.js';
+import { supabase, accountContext } from "./admin-client.js";
+import { membershipClosed, standingGap, playerName } from "./admin-display.js";
 import {
   addImage,
   addText,
@@ -10,7 +13,7 @@ import {
 } from "./ui.js";
 import { correctionErrorMessage, filterAdminFixtures, loadAdminFixtureResults, renderAdminFixtureResults, resultScore } from "./fixture-results-ui.js";
 import { syncResultMessage } from "./scheduler-ui.js";
-const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+const maintenance = watchMaintenance(supabase);
 const loading = document.querySelector("#admin-loading"),
   denied = document.querySelector("#admin-denied"),
   content = document.querySelector("#admin-content"),
@@ -60,10 +63,6 @@ let allPlayers = [];
 let allFixtures = [];
 let selectedCorrectionFixture = null;
 let selectedCorrectionPayload = null;
-const playerName = (player) =>
-  [player.first_name, player.last_name].filter(Boolean).join(" ") ||
-  player.display_name ||
-  "Unnamed player";
 function showDenied() {
   loading.hidden = true;
   content.hidden = true;
@@ -79,7 +78,10 @@ function renderPlayers(players) {
     playerList.append(empty);
     return;
   }
-  players.forEach((player) => {
+  const query = document.querySelector('#player-search').value.trim().toLocaleLowerCase('en-GB');
+  const matching = players.filter(player => `${playerName(player)} ${player.email}`.toLocaleLowerCase('en-GB').includes(query));
+  if (!matching.length) addText(playerList, 'p', 'No players match your search.', 'empty-list');
+  matching.forEach((player) => {
     const row = document.createElement("article");
     row.className = "player-row";
     const details = document.createElement("div");
@@ -94,16 +96,11 @@ function renderPlayers(players) {
     const controls = document.createElement("div");
     controls.className = "player-controls";
     const status = document.createElement("span");
-    status.className = `status ${player.approved ? "approved" : "pending"}`;
-    status.textContent = player.approved ? "Approved" : "Waiting";
-    const button = document.createElement("button");
-    button.className = `approval-button ${player.approved ? "revoke" : "approve"}`;
-    button.type = "button";
-    button.textContent = player.approved ? "Revoke access" : "Approve player";
-    button.addEventListener("click", () =>
-      setApproval(player, !player.approved, button),
-    );
-    controls.append(status, button);
+    status.className = "status registered";
+    status.textContent = player.is_admin ? "Administrator" : "Registered";
+    controls.append(status);
+    const manage = addText(controls, "button", "Manage memberships", "nav-button"); manage.type="button";
+    manage.addEventListener("click",()=>renderPlayerMemberships(document.querySelector("#player-memberships"),{...player,name:playerName(player)},supabase));
     row.append(details, controls);
     playerList.append(row);
   });
@@ -112,7 +109,7 @@ async function loadPlayers() {
   const { data, error } = await supabase
     .from("profiles")
     .select(
-      "id,email,display_name,first_name,last_name,approved,is_admin,created_at",
+      "id,email,display_name,first_name,last_name,is_admin,created_at",
     )
     .order("created_at", { ascending: false });
   if (error) {
@@ -122,27 +119,12 @@ async function loadPlayers() {
   allPlayers = data;
   renderPlayers(allPlayers);
 }
-async function setApproval(player, newApproved, button) {
-  button.disabled = true;
-  message.textContent = `${newApproved ? "Approving" : "Revoking access for"} ${playerName(player)}…`;
-  const { error } = await supabase.rpc("set_player_approval", {
-    player_id: player.id,
-    new_approved: newApproved,
-  });
-  if (error) {
-    button.disabled = false;
-    message.textContent = error.message;
-    return;
-  }
-  message.textContent = `${playerName(player)} is now ${newApproved ? "approved" : "waiting for approval"}.`;
-  await loadPlayers();
-}
 function renderPotPlayerOptions() {
   potPlayerOptions.replaceChildren();
   const availablePlayers = allPlayers;
   if (!availablePlayers.length) {
     potPlayerOptions.textContent =
-      "Approve at least one player before creating a pot.";
+      "At least one player must register before you can create a pot.";
     return;
   }
   availablePlayers.forEach((player) => {
@@ -293,12 +275,12 @@ async function fillRemainingGameweeks(potId, button) {
   });
   if (error) {
     button.disabled = false;
-    message.textContent = `${error.message}. Run 08 — Automatic remaining gameweeks in Supabase.`;
+    message.textContent = error.message;
     return;
   }
   message.textContent =
     "The pot now includes every remaining gameweek through GW38.";
-  await loadPots();
+  await loadPots(message.textContent);
 }
 function addBuyBackControls(pots, members) {
   document.querySelectorAll(".pot-card").forEach((card, potIndex) => {
@@ -352,7 +334,7 @@ function armAction(button, armedLabel, action) {
     }
   }, 4000);
 }
-function addPotManagement(pots, members) {
+function addPotManagement(pots, members, gameweeks) {
   document.querySelectorAll(".pot-card").forEach((card, potIndex) => {
     const pot = pots[potIndex],
       potMembers = members.filter((member) => member.pot_id === pot.id),
@@ -375,7 +357,19 @@ function addPotManagement(pots, members) {
     add.type = "button";
     add.className = "fill-weeks-button";
     add.textContent = "Add player";
-    add.disabled = !available.length || !["draft", "open"].includes(pot.status);
+    const updateMembershipControls = () => {
+      const closed = membershipClosed(pot, gameweeks);
+      add.disabled = !available.length || closed;
+      select.disabled = !available.length || closed;
+      add.title = closed ? "Membership is locked after the first deadline." : "";
+      card.querySelectorAll(".membership-edit").forEach(button => { button.disabled = closed; });
+    };
+    updateMembershipControls();
+    // Close an already-open page when its first deadline passes.
+    const timer = setInterval(() => {
+      if (!card.isConnected) { clearInterval(timer); return; }
+      updateMembershipControls();
+    }, 1000);
     add.addEventListener("click", () => addPlayerToPot(pot.id, select, add));
     management.append(select, add);
     if (pot.status === "draft") {
@@ -385,7 +379,7 @@ function addPotManagement(pots, members) {
           player = allPlayers.find((item) => item.id === member.player_id),
           remove = document.createElement("button");
         remove.type = "button";
-        remove.className = "pot-danger-button";
+        remove.className = "pot-danger-button membership-edit";
         remove.dataset.original = "Remove";
         remove.textContent = "Remove";
         remove.addEventListener("click", () =>
@@ -402,7 +396,7 @@ function addPotManagement(pots, members) {
       });
       const deletion = document.createElement("button");
       deletion.type = "button";
-      deletion.className = "pot-danger-button delete-pot-button";
+      deletion.className = "pot-danger-button delete-pot-button membership-edit";
       deletion.dataset.original = "Delete draft pot";
       deletion.textContent = "Delete draft pot";
       deletion.addEventListener("click", () =>
@@ -413,6 +407,7 @@ function addPotManagement(pots, members) {
       management.append(deletion);
     }
     card.append(management);
+    updateMembershipControls();
   });
 }
 function addTournamentControls(pots, members) {
@@ -425,6 +420,7 @@ function addTournamentControls(pots, members) {
     const label = document.createElement("strong");
     label.textContent = "Pot status";
     const status = document.createElement("select");
+    status.setAttribute("aria-label", `Status for ${pot.name}`);
     [
       ["draft", "Draft"],
       ["open", "Open for entries"],
@@ -465,16 +461,27 @@ function addTournamentControls(pots, members) {
     const automation=document.createElement("section");automation.className="automation-panel";card.prepend(automation);loadAutomationStatus(pot,automation);
   });
 }
-async function loadAutomationStatus(pot,panel){const {data,error}=await supabase.rpc("get_lms_automation_status",{selected_pot_id:pot.id});if(error){panel.textContent="Automation status unavailable.";return;}addText(panel,"strong",`Operations · ${data.blocked_by_review?"Blocked by review":data.last_run?.result?.state?.replaceAll("_"," ")||"Ready"}`);if(data.current_gameweek)addText(panel,"p",`Current round: GW${data.current_gameweek}`);if(data.last_run)addText(panel,"small",`Last run: ${data.last_run.status}${data.last_run.safe_error?` · ${data.last_run.safe_error}`:""}`);const run=addText(panel,"button","Run automation now","fill-weeks-button");run.type="button";run.addEventListener("click",async()=>{run.disabled=true;message.textContent="Running safe competition automation…";const result=await supabase.rpc("run_lms_pot_automation",{selected_pot_id:pot.id});run.disabled=false;if(result.error){message.textContent=result.error.message;return;}message.textContent=`Automation ${result.data.status}.`;await loadPots();});}
+async function loadAutomationStatus(pot,panel){const {data,error}=await supabase.rpc("get_lms_automation_status",{selected_pot_id:pot.id});if(error){panel.textContent="Automation status unavailable.";return;}addText(panel,"strong",`Operations · ${data.blocked_by_review?"Blocked by review":data.last_run?.result?.state?.replaceAll("_"," ")||"Ready"}`);if(data.current_gameweek)addText(panel,"p",`Current round: GW${data.current_gameweek}`);if(data.last_run)addText(panel,"small",`Last run: ${data.last_run.status}${data.last_run.safe_error?` · ${data.last_run.safe_error}`:""}`);const run=addText(panel,"button","Run automation now","fill-weeks-button");run.type="button";run.addEventListener("click",async()=>{run.disabled=true;message.textContent="Running safe competition automation…";const result=await supabase.rpc("run_lms_pot_automation",{selected_pot_id:pot.id});run.disabled=false;if(result.error){message.textContent=result.error.message;return;}message.textContent=`Automation ${result.data.status}.`;await loadPots(message.textContent);});}
 async function loadAdminReviews(pot,panel){
   const {data,error}=await supabase.rpc("get_my_pot_review_state",{selected_pot_id:pot.id});
   if(error||!data?.under_review){panel.remove();return;} addText(panel,"h3",`Governed review · ${data.open_count} open`);
   (data.cases||[]).filter(item=>item.status==="open").forEach(item=>{const row=document.createElement("article");addText(row,"strong",item.type.replaceAll("_"," "));addText(row,"p",item.summary);addText(row,"small",`Opened ${new Date(item.opened_at).toLocaleString("en-GB")}`);const resolve=addText(row,"button","Preview resolution","fill-weeks-button");resolve.type="button";resolve.addEventListener("click",()=>previewReviewResolution(item,row,resolve));row.append(resolve);panel.append(row);});
 }
-async function previewReviewResolution(review,row,button){
- button.disabled=true;const {data,error}=await supabase.rpc("preview_lms_review_resolution",{selected_case_id:review.id,selected_action:"confirm_existing",selected_player_ids:null});button.disabled=false;if(error){message.textContent=error.message;return;}
- const reason=window.prompt("Resolution reason (required):");if(!reason)return;const result=await supabase.rpc("resolve_lms_review_case",{selected_case_id:review.id,selected_action:"confirm_existing",resolution_reason:reason,expected_version_token:data.version_token,selected_player_ids:null});
- if(result.error){message.textContent=result.error.message.includes("Review state changed")?"Review state changed; preview again.":result.error.message;return;}message.textContent="Review resolved with an append-only decision record.";await loadPots();
+function previewReviewResolution(review) {
+  return openReasonDialog({
+    title: 'Confirm existing competition outcomes',
+    explanation: `${review.summary} Existing picks, outcomes and winners will be retained. This closes the review with an audited administrator decision.`,
+    async loadPreview() {
+      const {data,error}=await supabase.rpc('preview_lms_review_resolution',{selected_case_id:review.id,selected_action:'confirm_existing',selected_player_ids:null});
+      if(error)throw new Error(error.message);
+      return {...data, description:`Current preview: ${(data.original_winners||[]).length} recorded winners. After this decision the pot will be ${data.pot_after==='review'?'under review':data.pot_after.replaceAll('_',' ')}. Existing outcomes and winners will be retained.`};
+    },
+    async submit(reason,preview) {
+      const {error}=await supabase.rpc('resolve_lms_review_case',{selected_case_id:review.id,selected_action:'confirm_existing',resolution_reason:reason,expected_version_token:preview.version_token,selected_player_ids:null});
+      if(error)throw new Error(error.message.includes('Review state changed')?'Review state changed; preview again.':error.message);
+    },
+    onSuccess:()=>loadPots('Review resolved with an append-only decision record.'),
+  });
 }
 async function loadAdminCompletion(pot,panel){
   const {data,error}=await supabase.rpc("get_pot_completion",{selected_pot_id:pot.id});
@@ -483,25 +490,42 @@ async function loadAdminCompletion(pot,panel){
   (data.winners||[]).forEach(winner=>addText(panel,"p",`${winner.name} — ${money(winner.prize_share_pence)}`));
   addText(panel,"small",data.resolution_rule.replaceAll("_"," "));
 }
-async function loadPots() {
+async function loadPots(successMessage = "") {
   message.textContent = "Loading pots…";
   const [potsResult, weeksResult, membersResult] = await Promise.all([
     supabase.from("pots").select("*").order("created_at", { ascending: false }),
-    supabase.from("pot_gameweeks").select("pot_id,gameweek_number"),
+    supabase.from("pot_gameweeks").select("pot_id,gameweek_number,pick_deadline_at"),
     supabase
       .from("pot_players")
       .select("pot_id,player_id,payment_status,player_status,buy_back_status,buy_back_payment_status,buy_back_claimed_at,buy_back_request_deadline"),
   ]);
   const error = potsResult.error || weeksResult.error || membersResult.error;
   if (error) {
-    message.textContent = `Couldn’t load pots: ${error.message}. Run 06 — Pot and payment setup in Supabase.`;
+    message.textContent = `Couldn’t load pots: ${error.message}`;
     return;
   }
-  message.textContent = "";
+  message.textContent = successMessage;
   renderPots(potsResult.data, weeksResult.data, membersResult.data);
   addBuyBackControls(potsResult.data, membersResult.data);
-  addPotManagement(potsResult.data, membersResult.data);
+  addPotManagement(potsResult.data, membersResult.data, weeksResult.data);
   addTournamentControls(potsResult.data, membersResult.data);
+  document.querySelectorAll('.pot-card').forEach((card,index)=>{
+    const panel=document.createElement('section');panel.className='membership-panel';card.append(panel);
+    renderPotRequests(panel,potsResult.data[index],supabase,loadPots);
+    const header=card.querySelector('header');
+    const weeks=card.querySelector('.pot-weeks');
+    const completion=card.querySelector('.completion-summary');
+    const review=card.querySelector('.admin-review-panel');
+    const members=card.querySelector('.pot-member-list');
+    const membership=document.createElement('details'); membership.className='pot-section';
+    addText(membership,'summary',`Players, memberships & payments (${members.children.length})`);
+    membership.append(members,card.querySelector('.pot-management'),panel);
+    const operations=document.createElement('details'); operations.className='pot-section';
+    addText(operations,'summary','Tournament controls & operations');
+    operations.append(card.querySelector('.tournament-controls'),card.querySelector('.automation-panel'));
+    card.prepend(header,weeks,completion,review);
+    card.append(membership,operations);
+  });
 }
 function setPayment(potId, playerId, select) {
   const row = select.closest(".pot-member"),
@@ -562,32 +586,21 @@ async function setBuyBack(potId, playerId, approved, button) {
     approved,
   });
   if (error) {
-    message.textContent = `${error.message}. Run 14 — One-time buy-back workflow in Supabase.`;
-    button.disabled = false;
-    return;
-  }
-  message.textContent = approved
-    ? "Buy-back confirmed. The player is active again."
-    : "Buy-back claim rejected.";
-  await loadPots();
-}
-async function revokeBuyBack(potId, playerId, button) {
-  const reason = window.prompt("Reason for revoking this buy-back (required):");
-  if (!reason) return;
-  button.disabled = true;
-  message.textContent = "Revoking the buy-back…";
-  const { error } = await supabase.rpc("revoke_buy_back", {
-    selected_pot_id: potId,
-    selected_player_id: playerId,
-    revoke_reason: reason,
-  });
-  if (error) {
     message.textContent = error.message;
     button.disabled = false;
     return;
   }
-  message.textContent = "Buy-back revoked and audit history recorded.";
-  await loadPots();
+  message.textContent = approved
+    ? "Buy-back payment confirmed."
+    : "Buy-back claim rejected.";
+  await loadPots(message.textContent);
+}
+function revokeBuyBack(potId, playerId) {
+  return openReasonDialog({title:'Revoke buy-back',confirmLabel:'Revoke buy-back',inputLabel:'Reason for revoking this buy-back (required)',explanation:'Revoke this player’s buy-back in this pot. The server checks whether revocation is still permitted and records your reason.',
+    loadPreview:async()=>({description:'This action applies only to the selected player and pot.'}),
+    async submit(reason){const {error}=await supabase.rpc('revoke_buy_back',{selected_pot_id:potId,selected_player_id:playerId,revoke_reason:reason});if(error)throw new Error(error.message);},
+    onSuccess:()=>loadPots('Buy-back revoked and audit history recorded.'),
+  });
 }
 async function addPlayerToPot(potId, select, button) {
   if (!select.value) {
@@ -601,12 +614,12 @@ async function addPlayerToPot(potId, select, button) {
     selected_player_id: select.value,
   });
   if (error) {
-    message.textContent = `${error.message}. Run 15 — Edit pot players and delete draft pots in Supabase.`;
+    message.textContent = error.message;
     button.disabled = false;
     return;
   }
   message.textContent = "Player added to the pot.";
-  await loadPots();
+  await loadPots(message.textContent);
 }
 async function removePlayerFromPot(potId, playerId, name, button) {
   button.disabled = true;
@@ -616,12 +629,12 @@ async function removePlayerFromPot(potId, playerId, name, button) {
     selected_player_id: playerId,
   });
   if (error) {
-    message.textContent = `${error.message}. Run 15 — Edit pot players and delete draft pots in Supabase.`;
+    message.textContent = error.message;
     button.disabled = false;
     return;
   }
   message.textContent = `${name} was removed from the pot.`;
-  await loadPots();
+  await loadPots(message.textContent);
 }
 async function deletePot(pot, button) {
   button.disabled = true;
@@ -631,12 +644,12 @@ async function deletePot(pot, button) {
     confirmation_name: pot.name,
   });
   if (error) {
-    message.textContent = `${error.message}. Run 15 — Edit pot players and delete draft pots in Supabase.`;
+    message.textContent = error.message;
     button.disabled = false;
     return;
   }
   message.textContent = `${pot.name} was deleted.`;
-  await loadPots();
+  await loadPots(message.textContent);
 }
 async function savePotStatus(potId, select, button) {
   button.disabled = true;
@@ -646,12 +659,12 @@ async function savePotStatus(potId, select, button) {
     new_status: select.value,
   });
   if (error) {
-    message.textContent = `${error.message}. Run 18 — Tournament lifecycle, history and test reset in Supabase.`;
+    message.textContent = error.message;
     button.disabled = false;
     return;
   }
   message.textContent = "Pot status saved.";
-  await loadPots();
+  await loadPots(message.textContent);
 }
 async function resetTestPot(pot, button) {
   button.disabled = true;
@@ -660,12 +673,12 @@ async function resetTestPot(pot, button) {
     selected_pot_id: pot.id,
   });
   if (error) {
-    message.textContent = `${error.message}. Run 18 — Tournament lifecycle, history and test reset in Supabase.`;
+    message.textContent = error.message;
     button.disabled = false;
     return;
   }
   message.textContent = `${pot.name} is back at round one. Payments and assigned players were kept.`;
-  await loadPots();
+  await loadPots(message.textContent);
 }
 async function completePot(pot, winnerId, button) {
   button.disabled = true;
@@ -675,14 +688,14 @@ async function completePot(pot, winnerId, button) {
     selected_winner_id: winnerId,
   });
   if (error) {
-    message.textContent = `${error.message}. Run 18 — Tournament lifecycle, history and test reset in Supabase.`;
+    message.textContent = error.message;
     button.disabled = false;
     return;
   }
   message.textContent = `${pot.name} is complete and the winner is recorded.`;
-  await loadPots();
+  await loadPots(message.textContent);
 }
-async function loadFixtures() {
+async function loadFixtures(successMessage = "") {
   message.textContent = "Loading fixtures…";
   await loadOperationsHealth();
   const { fixtures, errorMessage } = await loadAdminFixtureResults(supabase, CURRENT_SEASON);
@@ -691,7 +704,7 @@ async function loadFixtures() {
     fixtureList.replaceChildren();
     return;
   }
-  message.textContent = "";
+  message.textContent = successMessage;
   allFixtures = fixtures;
   fixtureSyncDetail.textContent = fixtures.length
     ? `${fixtures.length} fixtures saved for ${CURRENT_SEASON}. Raw provider and effective authoritative results are shown separately.`
@@ -707,7 +720,7 @@ async function loadFixtures() {
 }
 function renderFilteredFixtures() {
   renderAdminFixtureResults(fixtureList,
-    filterAdminFixtures(allFixtures, fixtureGameweekFilter.value, fixtureSearch.value),openFixtureCorrection);
+    filterAdminFixtures(allFixtures, fixtureGameweekFilter.value, fixtureSearch.value),openFixtureCorrection, allFixtures.length > 0);
 }
 function closeFixtureCorrection() {
   selectedCorrectionFixture = null;
@@ -806,7 +819,7 @@ async function confirmFixtureCorrection() {
   message.textContent = data.review_count
     ? `Correction saved. ${data.review_count} pot${data.review_count === 1 ? "" : "s"} flagged for review; no historical result was recalculated.`
     : "Correction saved. Provider raw values were preserved.";
-  await loadFixtures();
+  await loadFixtures(message.textContent);
 }
 async function syncFplData() {
   syncFplButton.disabled = true;
@@ -817,7 +830,7 @@ async function syncFplData() {
     });
     if (error) throw error;
     message.textContent = syncResultMessage(data);
-    await loadFixtures();
+    await loadFixtures(message.textContent);
   } catch (error) {
     message.textContent = `Couldn’t sync FPL data: ${error.message}`;
   } finally {
@@ -892,7 +905,7 @@ function renderAdminPicks(data) {
       );
       choice.append(details);
     } else {
-      addText(choice, "strong", "Awaiting pick");
+      addText(choice, "strong", "No pick recorded");
       addText(choice, "small", "No team has been locked in");
     }
     const controls = document.createElement("div");
@@ -951,7 +964,7 @@ async function setTestScenario(pickId, select) {
   }
   message.textContent =
     "Test result saved. This has not changed the FPL fixture.";
-  await loadAdminPicks();
+  await loadAdminPicks(message.textContent);
 }
 async function toggleTestMode() {
   testModeToggle.disabled = true;
@@ -962,14 +975,14 @@ async function toggleTestMode() {
     enabled,
   });
   if (error) {
-    message.textContent = `${error.message}. Run 12 — Draft pot result testing in Supabase.`;
+    message.textContent = error.message;
     testModeToggle.disabled = false;
     return;
   }
   message.textContent = enabled
     ? "Test mode enabled for this draft pot."
     : "Test mode disabled. Saved simulations were cleared.";
-  await loadAdminPicks();
+  await loadAdminPicks(message.textContent);
 }
 function renderAdminDeadline(data) {
   const deadline = data?.deadline ? new Date(data.deadline) : null;
@@ -993,7 +1006,10 @@ function renderAdminDeadline(data) {
     ? "Random picks unlock after the first gameweek fixture begins"
     : "";
 }
-async function loadAdminPicks() {
+let picksGeneration=0, pickFiltersGeneration=0, standingsGeneration=0, standingsFiltersGeneration=0;
+async function loadAdminPicks(successMessage = "") {
+  const generation=++picksGeneration;
+  const selectedPot=pickPot.value, selectedWeek=pickGameweek.value;
   if (!pickPot.value || !pickGameweek.value) return;
   message.textContent = "Loading locked selections…";
   const [overview, deadline] = await Promise.all([
@@ -1006,17 +1022,19 @@ async function loadAdminPicks() {
       selected_gameweek: Number(pickGameweek.value),
     }),
   ]);
+  if(generation!==picksGeneration || selectedPot!==pickPot.value || selectedWeek!==pickGameweek.value)return;
   const error = overview.error || deadline.error;
   if (error) {
-    message.textContent = `Couldn’t load selections: ${error.message}. Run 20 — Pick deadlines and random assignment audit in Supabase.`;
+    message.textContent = `Couldn’t load selections: ${error.message}`;
     adminPickList.replaceChildren();
     return;
   }
-  message.textContent = "";
+  message.textContent = typeof successMessage === "string" ? successMessage : successMessage?.detail?.message || "";
   renderAdminPicks(overview.data);
   renderAdminDeadline(deadline.data);
 }
 async function loadPickFilters() {
+  const generation=++pickFiltersGeneration;
   message.textContent = "Loading pots…";
   const [potsResult, weeksResult] = await Promise.all([
     supabase
@@ -1025,11 +1043,13 @@ async function loadPickFilters() {
       .order("created_at", { ascending: false }),
     supabase.from("pot_gameweeks").select("pot_id,gameweek_number"),
   ]);
+  if(generation!==pickFiltersGeneration)return;
   const error = potsResult.error || weeksResult.error;
   if (error) {
     message.textContent = `Couldn’t load pots: ${error.message}`;
     return;
   }
+  const selectedPot=pickPot.value;
   pickPot.replaceChildren();
   potsResult.data.forEach((pot) => {
     const option = document.createElement("option");
@@ -1037,7 +1057,10 @@ async function loadPickFilters() {
     option.textContent = `${pot.name} · ${pot.season}`;
     pickPot.append(option);
   });
+  if(potsResult.data.some(pot=>pot.id===selectedPot))pickPot.value=selectedPot;
+  let previousPot=selectedPot;
   const updateWeeks = () => {
+    const selectedWeek=previousPot===pickPot.value?pickGameweek.value:null;previousPot=pickPot.value;
     pickGameweek.replaceChildren();
     weeksResult.data
       .filter((week) => week.pot_id === pickPot.value)
@@ -1048,6 +1071,7 @@ async function loadPickFilters() {
         option.textContent = `GW${week.gameweek_number}`;
         pickGameweek.append(option);
       });
+    if([...pickGameweek.options].some(option=>option.value===selectedWeek))pickGameweek.value=selectedWeek;
     loadAdminPicks();
   };
   pickPot.onchange = updateWeeks;
@@ -1068,7 +1092,7 @@ function renderStandings(data) {
     ).length;
   [
     ["Players", players.length],
-    ["Still standing", active],
+    [players.some(player => player.player_status === "winner") ? "Winners" : "Still standing", players.some(player => player.player_status === "winner") ? players.filter(player => player.player_status === "winner").length : active],
     [
       "Eliminated",
       players.filter((player) => player.player_status === "eliminated").length,
@@ -1114,7 +1138,6 @@ function renderStandings(data) {
     const pickMap = new Map(
       (player.picks || []).map((pick) => [pick.gameweek_number, pick]),
     );
-    let eliminated = false;
     gameweeks.forEach((gameweek) => {
       const cell = document.createElement("td"),
         pick = pickMap.get(gameweek);
@@ -1122,15 +1145,7 @@ function renderStandings(data) {
       if (pick) {
         cell.classList.add(pick.outcome);
         renderStandingPick(cell, pick, true);
-        if (pick.outcome === "lost") eliminated = true;
-      } else if (
-        eliminated ||
-        (player.player_status === "eliminated" &&
-          [...(player.picks || [])].some(
-            (item) =>
-              item.outcome === "lost" && item.gameweek_number < gameweek,
-          ))
-      ) {
+      } else if (standingGap(player, gameweek, data.current_gameweek) === "eliminated") {
         cell.classList.add("after-elimination");
         cell.textContent = "×";
       } else {
@@ -1145,13 +1160,15 @@ function renderStandings(data) {
   standingsBoard.append(table);
 }
 async function loadStandings() {
+  const generation=++standingsGeneration; const selectedPot=standingsPot.value;
   if (!standingsPot.value) return;
   message.textContent = "Loading standings…";
   const { data, error } = await supabase.rpc("get_pot_standings", {
-    selected_pot_id: standingsPot.value,
+    selected_pot_id: selectedPot,
   });
+  if(generation!==standingsGeneration || selectedPot!==standingsPot.value)return;
   if (error) {
-    message.textContent = `Couldn’t load standings: ${error.message}. Run 19 — Pot standings board in Supabase.`;
+    message.textContent = `Couldn’t load standings: ${error.message}`;
     standingsBoard.replaceChildren();
     return;
   }
@@ -1159,15 +1176,18 @@ async function loadStandings() {
   renderStandings(data);
 }
 async function loadStandingsFilters() {
+  const generation=++standingsFiltersGeneration;
   message.textContent = "Loading pots…";
   const { data, error } = await supabase
     .from("pots")
     .select("id,name,season")
     .order("created_at", { ascending: false });
+  if(generation!==standingsFiltersGeneration)return;
   if (error) {
     message.textContent = `Couldn’t load pots: ${error.message}`;
     return;
   }
+  const selectedPot=standingsPot.value;
   standingsPot.replaceChildren();
   data.forEach((pot) => {
     const option = document.createElement("option");
@@ -1175,6 +1195,7 @@ async function loadStandingsFilters() {
     option.textContent = `${pot.name} · ${pot.season}`;
     standingsPot.append(option);
   });
+  if(data.some(pot=>pot.id===selectedPot))standingsPot.value=selectedPot;
   standingsPot.onchange = loadStandings;
   if (data.length) loadStandings();
   else {
@@ -1182,7 +1203,29 @@ async function loadStandingsFilters() {
     standingsBoard.replaceChildren();
   }
 }
+let overviewGeneration = 0;
+async function loadOverview() {
+  const generation = ++overviewGeneration;
+  const panel = document.querySelector('#overview-metrics');
+  panel.textContent = 'Loading competition summary…';
+  const [pots, players] = await Promise.all([
+    supabase.from('pots').select('id,status,review_status'),
+    supabase.from('profiles').select('id'),
+  ]);
+  const {data} = pots;
+  const error = pots.error || players.error;
+  if (generation !== overviewGeneration || document.querySelector('#overview-view').hidden) return;
+  panel.replaceChildren();
+  if (error) { addText(panel, 'p', `Couldn’t load competition summary: ${error.message}`, 'field-help'); return; }
+  playerCount.textContent = players.data.length;
+  renderMetric(panel, 'Registered players', players.data.length);
+  renderMetric(panel, 'Open pots', data.filter(pot => pot.status === 'open').length);
+  renderMetric(panel, 'Pots needing review', data.filter(pot => pot.review_status === "needs_review").length);
+}
 function switchView(view) {
+  ++overviewGeneration;
+  document.querySelector('#overview-view').hidden = view !== 'overview';
+  ++picksGeneration; ++standingsGeneration; ++pickFiltersGeneration; ++standingsFiltersGeneration;
   playersView.hidden = view !== "players";
   potsView.hidden = view !== "pots";
   fixturesView.hidden = view !== "fixtures";
@@ -1198,30 +1241,29 @@ function switchView(view) {
           : view === "standings"
             ? "Standings"
             : "Players";
-  document
-    .querySelectorAll(".admin-tab")
-    .forEach((tab) =>
-      tab.classList.toggle("active", tab.dataset.view === view),
-    );
-  if (view === "pots") {
-    renderPotPlayerOptions();
-    loadPots();
+  if (view === 'overview') adminTitle.textContent = 'Overview';
+  if (view === 'picks') adminTitle.textContent = 'Picks & results';
+  if (view === 'fixtures') adminTitle.textContent = 'Reviews & operations';
+  document.querySelectorAll('.admin-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.view === view);
+    if (tab.dataset.view === view) tab.setAttribute('aria-current', 'page');
+    else tab.removeAttribute('aria-current');
+  });
+  if (view === "overview") {
+    countLabel.textContent = "registered";
+    loadOverview();
+  } else if (view === "pots") {
+    loadPlayers().then(() => { renderPotPlayerOptions(); loadPots(); });
   } else if (view === "fixtures") loadFixtures();
   else if (view === "picks") loadPickFilters();
   else if (view === "standings") loadStandingsFilters();
   else {
-    playerCount.textContent = allPlayers.length;
     countLabel.textContent = "registered";
+    loadPlayers();
   }
 }
 async function initialise() {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) {
-    window.location.replace("/");
-    return;
-  }
+  if (!(await accountContext.start())) return;
   const { data: isAdmin, error } = await supabase.rpc("is_current_user_admin");
   if (error) {
     loading.hidden = true;
@@ -1239,7 +1281,7 @@ async function initialise() {
   const { data, error: playersError } = await supabase
     .from("profiles")
     .select(
-      "id,email,display_name,first_name,last_name,approved,is_admin,created_at",
+      "id,email,display_name,first_name,last_name,is_admin,created_at",
     )
     .order("created_at", { ascending: false });
   if (playersError) {
@@ -1249,12 +1291,15 @@ async function initialise() {
   allPlayers = data;
   renderPlayers(allPlayers);
   buildGameweekGrid();
+  switchView("overview");
 }
 document
   .querySelectorAll(".admin-tab")
   .forEach((tab) =>
     tab.addEventListener("click", () => switchView(tab.dataset.view)),
   );
+document.querySelector("#player-search").addEventListener("input", () => renderPlayers(allPlayers));
+document.querySelectorAll("[data-workspace]").forEach(button => button.addEventListener("click", () => { switchView(button.dataset.workspace); adminTitle.tabIndex=-1; adminTitle.focus(); }));
 showPotFormButton.addEventListener("click", () => {
   potForm.hidden = false;
   showPotFormButton.hidden = true;
@@ -1305,14 +1350,14 @@ potForm.addEventListener("submit", async (event) => {
   potForm.hidden = true;
   showPotFormButton.hidden = false;
   message.textContent = "Draft pot created with every gameweek through GW38.";
-  await loadPots();
+  await loadPots(message.textContent);
 });
 signOutButton.addEventListener("click", async () => {
   signOutButton.disabled = true;
-  await supabase.auth.signOut();
-  window.location.replace("/");
+  await accountContext.signOut();
 });
-initialise();
+accountContext.onInvalidate(() => { content.hidden = true; denied.hidden = true; });
+maintenance.ready.then(initialise);
 syncFplButton.addEventListener("click", syncFplData);
 testModeToggle.addEventListener("click", toggleTestMode);
 fixtureCorrectionForm.addEventListener("submit", previewFixtureCorrection);
@@ -1329,3 +1374,5 @@ fixtureCorrectionDialog
   .addEventListener("click", closeFixtureCorrection);
 fixtureGameweekFilter.addEventListener("change", renderFilteredFixtures);
 fixtureSearch.addEventListener("input", renderFilteredFixtures);
+
+export { renderStandings, renderAdminPicks, addPotManagement, renderPlayers, loadPlayers, loadPots, loadAdminPicks, loadStandings, loadStandingsFilters, loadPickFilters, previewReviewResolution };

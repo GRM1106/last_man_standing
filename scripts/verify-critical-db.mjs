@@ -82,6 +82,9 @@ export function seedHistoricalData(db) {
   historyBefore = snapshot(db);
 }
 export function verifyHistoricalData(db) {
+  // A legacy false flag cannot prove provider finality, even when finished and
+  // scores were already stored before the forward correction.
+  assert.equal(db.sql('select processable from public.get_effective_fixture_result(-931201)').trim(), 'f');
   assert.equal(snapshot(db), historyBefore, 'forward migrations must preserve historical rows and human attribution exactly');
   assert.equal(db.sql(`select count(*) from public.lms_audit_actors where id='${admin}' and profile_id='${admin}' and actor_type='human'`).trim(), '1');
   const diagnostic = db.sql(readFileSync(new URL('../supabase/diagnostics/critical_round_order.sql', import.meta.url), 'utf8'));
@@ -175,7 +178,7 @@ async function verifyScheduler(db) {
   const future = new Date(Date.now() + 86400_000).toISOString();
   const fixture = (id, event, finished = false) => ({ id, event, kickoff_time: future, team_h: 93101, team_a: 93102,
     team_h_score: finished ? 2 : null, team_a_score: finished ? 0 : null, started: finished,
-    finished, finished_provisional: false, provisional_start_time: false });
+    finished, finished_provisional: finished, provisional_start_time: false });
   const season = 'CRITICAL-SCHEDULER';
   const pipeline = (fixtures, actor = null) => runSchedulerPipeline({ source: actor ? 'admin' : 'scheduler', season,
     operations: createSchedulerOperations({ async rpc(name, args) {

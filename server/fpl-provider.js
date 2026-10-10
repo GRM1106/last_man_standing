@@ -59,6 +59,10 @@ function validateFixtures(fixtures, teamIds) {
   });
 }
 
+// Preserve fixture completion evidence exactly, including absent/NULL flags.
+// FPL completed fixtures report finished=true AND finished_provisional=true;
+// the latter is not an inverse "not final" flag. The database independently
+// requires both positive flags. Event-wide completion cannot fill a fixture gap.
 export function validateAndProjectFplPayload(bootstrap, fixtures) {
   if (!bootstrap || typeof bootstrap !== "object") throw new ProviderError("Provider bootstrap payload is invalid.", { classification: "validation" });
   const teamIds = validateTeams(bootstrap.teams);

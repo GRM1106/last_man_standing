@@ -4,53 +4,94 @@ A registration page for a private Last Man Standing football tournament.
 
 ## Local development
 
-Requires Node.js 22 or newer.
+Requires Node.js 22 or newer and Docker. The pinned Supabase CLI is installed with the project.
 
 ```sh
 npm install
-npm run dev
+npm run local:start       # separate local project; applies repository migrations
+npm run local:setup       # writes ignored local public/function configuration
+npm run local:functions   # keep running in a separate terminal
+npm run dev               # http://127.0.0.1:5173
 ```
 
-Useful checks:
+Ordinary development is local-only and fails clearly if configuration is missing. It never
+falls back to a hosted project. Local Supabase uses `http://127.0.0.1:55321`, Studio uses
+`http://127.0.0.1:55323`, and test email uses `http://127.0.0.1:55324`. The separate project
+`last_man_standing_local` does not reuse the older `last_man_standing` containers/volumes.
+No production data is copied or seeded. Existing automation switches remain disabled.
+
+`local:setup` obtains keys from CLI status, validates local URL/key claims and writes only the
+anonymous key to `.env.development.local`. Privileged keys stay in the local Supabase runtime.
+It does not overwrite hand-written private configuration. Do not put secrets in `VITE_*`
+variables; Vite automatic environment exposure is disabled. The local browser connection policy
+permits only this app and local Supabase. Remote team badge images are intentionally blocked locally.
+Email/password registration is available locally; Google OAuth needs separate local provider setup
+and is not required for startup. Use the local email UI for mail checks.
 
 ```sh
-npm test          # XSS and deployment-policy regression tests
-npm run build     # production bundle in dist/
-npm run check     # tests followed by the build-target isolation checks
-npm run preview   # preview the production build locally
-npm run audit     # dependency security audit
+npm run local:migrate     # pending migrations, explicitly --local; never resets data
+npm test
+npm run test:db           # separate disposable database; leaves the running stack alone
+npm run test:build-targets
+npm run build:local
+npm run preview           # local bundle only, http://127.0.0.1:4173
 ```
 
-The normal development and build commands target production. A staging build is deliberately
-fail-closed and requires the staging publishable browser key outside the repository:
+A compatibility `/api/fpl` handler is available through Vite. It reads the public official FPL
+feed, not production LMS infrastructure. Admin scheduler requests go to local Edge Functions.
+The local scheduler rejects hosted database URLs/keys before any authentication or RPC request;
+no polling schedule starts automatically. A deployed Edge Function retains platform-injected
+configuration. `local:functions` strips ambient hosted credentials and uses its generated local
+environment file. Normal local commands never invoke remote deployment commands.
+
+Production and genuine staging remain explicit hosted paths:
 
 ```sh
+npm run build             # explicit production bundle, existing Vercel identity guard
 cp .env.staging.example .env.staging.local
-# Replace the placeholder with the staging sb_publishable_ value.
+# Set the staging PUBLIC publishable key in that ignored file.
 npm run build:staging
+npm run dev:staging       # explicitly opts into hosted staging
+npm run preview:production  # only a production-labelled bundle
+npm run preview:staging     # only a staging-labelled bundle
 ```
 
-`vercel.json` is the production deployment policy. `vercel.staging.json` is the separate staging
-policy and permits only the staging Supabase HTTPS/WebSocket origins. Creating either bundle does
-not deploy it. Never put a database password, service-role key or scheduler secret in these files.
+`vercel.json` and `vercel.staging.json` keep their separate deployment policies. The existing
+`deploy:production` and `deploy:staging` commands still prove the linked project's identity.
+Creating a build does not deploy it. See [DEPLOY_TARGET_GUARD.md](DEPLOY_TARGET_GUARD.md) and
+[SUPABASE_TARGET_GUARD.md](SUPABASE_TARGET_GUARD.md) for hosted operation protections. Do not
+use a hosted deployment or database-reset command as a local startup step.
 
-A build target that contradicts the Vercel project this checkout is linked to is refused rather
-than built, and a deployment must positively prove which project it is going to. Validation is
-built into the deploy commands, so there is no separate checker to remember:
+## Registration
 
-```sh
-npm run deploy:staging       # or deploy:production
-```
+Registration is open. Email/password signup and restored sessions go straight to the
+player dashboard after any email verification required by Supabase Auth. An account
+without a pot gets an explanatory empty dashboard; organisers still control pot membership.
+The old `waiting.html` URL redirects to the dashboard or sign-in page.
 
-Read [`DEPLOY_TARGET_GUARD.md`](DEPLOY_TARGET_GUARD.md) for what the guard checks, what a raw
-`vercel deploy` does, and why production deployment stays blocked until the production Vercel
-project identity is recorded.
+Apply the complete ordered `supabase/migrations/` chain, including
+`20260926000200_open_registration.sql` (`npm run local:migrate` locally). That migration
+retires the account-approval RPC and defaults/backfills the deprecated `profiles.approved`
+compatibility field to true. This field no longer grants or restricts access. Authentication,
+profile RLS, administrator roles, deadlines, payments and buy-back decisions are unchanged.
 
-Remote Supabase operations are guarded the same way. Edge Function deployment, deletion and
-function secrets go through `npm run supabase:*:staging`, which prove the project and pass an
-explicit `--project-ref`; production is blocked. Local `supabase start`, `stop`,
-`db reset --local` and `functions serve` are unaffected. See
-[`SUPABASE_TARGET_GUARD.md`](SUPABASE_TARGET_GUARD.md).
+## RPC authorisation
+
+Registration is public through Supabase Auth; application RPCs require authentication.
+`20260926000300_rpc_authorisation_boundary.sql` removes inherited anonymous execution
+from the remaining legacy functions, makes correction helpers private to their checked
+entry points, and authorises the retired manual-winner RPC before inspecting pot state.
+Player membership checks and administrator attribution remain in the database.
+`20260926000400_member_name_privacy.sql` prevents contact emails from being used as
+member-facing fallback names in standings and original/adjudicated winners. Real
+names and nicknames are retained; missing names display as “Player”.
+
+Supabase grants `anon` and `authenticated` function execution by default. New migrations
+must explicitly revoke `PUBLIC`, `anon` and, for internal helpers, `authenticated`;
+revoking `PUBLIC` alone is insufficient. The disposable bootstrap reproduces these
+platform defaults. `npm run test:db` verifies the complete anonymous RPC surface,
+reviewed authenticated entry points, registration and cross-user/cross-pot boundaries.
+Platform-wide defaults are deliberately unchanged; new RPCs need an explicit grant review.
 
 ## Supabase setup
 

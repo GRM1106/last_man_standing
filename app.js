@@ -1,5 +1,6 @@
+import { watchMaintenance } from './maintenance.js';
 import { createClient } from "@supabase/supabase-js";
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
+import { DEPLOY_TARGET, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
 
 const registerView = document.querySelector("#register-view");
 const signInButton = document.querySelector("#google-sign-in");
@@ -7,18 +8,20 @@ const emailForm = document.querySelector("#email-registration");
 const signInForm = document.querySelector("#email-sign-in");
 const modeButton = document.querySelector("#switch-auth-mode");
 const message = document.querySelector("#auth-message");
-const configured = SUPABASE_URL.startsWith("https://") && !SUPABASE_URL.includes("YOUR_") && !SUPABASE_PUBLISHABLE_KEY.includes("YOUR_");
+const configured = (SUPABASE_URL.startsWith("https://") || (DEPLOY_TARGET === "local" && SUPABASE_URL === "http://127.0.0.1:55321")) && !SUPABASE_URL.includes("YOUR_") && !SUPABASE_PUBLISHABLE_KEY.includes("YOUR_");
 const supabase = configured ? createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY) : null;
 
-function showRegistration(){registerView.hidden=false}
-function showWaiting(){window.location.replace("/waiting.html")}
+const maintenance = supabase ? watchMaintenance(supabase) : null;
+
+function showRegistration(){document.querySelector("#auth-loading").hidden=true;registerView.hidden=false}
+function showDashboard(){window.location.replace("/dashboard.html")}
 
 async function initialise(){
-  if(!supabase){message.textContent="Registration is being connected. Please check back soon.";return}
+  if(!supabase){showRegistration();message.textContent="Registration is being connected. Please check back soon.";return}
   const {data,error}=await supabase.auth.getSession();
-  if(error){message.textContent="We couldn’t check your registration. Please refresh and try again.";return}
-  data.session?.user?showWaiting(data.session.user):showRegistration();
-  supabase.auth.onAuthStateChange((_event,session)=>session?.user?showWaiting(session.user):showRegistration());
+  if(error){showRegistration();message.textContent="We couldn’t check your registration. Please refresh and try again.";return}
+  data.session?.user?showDashboard(data.session.user):showRegistration();
+  supabase.auth.onAuthStateChange((_event,session)=>session?.user?showDashboard(session.user):showRegistration());
 }
 
 signInButton.addEventListener("click",async()=>{
@@ -42,7 +45,7 @@ emailForm.addEventListener("submit",async(event)=>{
   });
   submitButton.disabled=false;
   if(error){message.textContent=error.message;return}
-  if(data.session)showWaiting(data.user);
+  if(data.session)showDashboard(data.user);
   else{emailForm.reset();message.textContent="Account created. Check your email to confirm your address."}
 });
 
@@ -59,10 +62,18 @@ signInForm.addEventListener("submit",async(event)=>{
 
 modeButton.addEventListener("click",()=>{
   const showingSignIn=!signInForm.hidden;
+  document.querySelector("#nav-sign-in").hidden=!showingSignIn;
   signInForm.hidden=showingSignIn;
   emailForm.hidden=!showingSignIn;
   modeButton.textContent=showingSignIn?"Already registered? Sign in":"Need an account? Register";
+  document.querySelector('#auth-title').textContent=showingSignIn?'Claim your place.':'Welcome back.';
+  document.querySelector('#auth-eyebrow').textContent=showingSignIn?'GET IN THE GAME':'YOUR NEXT ROUND AWAITS';
+  document.querySelector('.divider span').textContent=showingSignIn?'or register with email':'or sign in with email';
+  signInButton.querySelector('span').textContent=showingSignIn?'Register with Google':'Sign in with Google';
+  document.querySelector('.copy').textContent=showingSignIn?'Create an account to access your player dashboard. Request a place in an available pot, or ask your organiser to assign you.':'Sign in to see your pots, check the next deadline and make your pick.';
+  (showingSignIn?emailForm:signInForm).querySelector('input').focus();
   message.textContent="";
 });
 
-initialise();
+document.querySelector("#nav-sign-in").addEventListener("click",()=>{if(signInForm.hidden)modeButton.click();});
+if (maintenance) maintenance.ready.then(initialise); else initialise();

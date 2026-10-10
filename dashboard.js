@@ -1,5 +1,7 @@
-import { createClient } from "@supabase/supabase-js";
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
+import { watchMaintenance } from './maintenance.js';
+import { readPotPreference, savePotPreference, preferredPot } from './pot-preference.js';
+import { renderAvailablePots } from './membership-ui.js';
+import { createAccountClient } from './account-client.js';
 import {
   addImage,
   addText,
@@ -10,7 +12,8 @@ import {
 } from "./ui.js";
 import { countdownText, updatePickDeadlineStates } from "./deadline-ui.js";
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+const { supabase, accountContext } = createAccountClient();
+const maintenance = watchMaintenance(supabase);
 const loading = document.querySelector("#dashboard-loading"),
   empty = document.querySelector("#dashboard-empty"),
   content = document.querySelector("#dashboard-content"),
@@ -78,10 +81,15 @@ function teamButton(team, fixture, pot, selection, isAway = false) {
 }
 function renderSelection(pot, selection, panel) {
   panel.replaceChildren();
+  if (pot.status === "complete") {
+    addText(panel, "h3", "Competition complete");
+    addText(panel, "p", "All rounds have finished. Explore the final standings and your pick history below.", "selection-note");
+    return;
+  }
   const heading = document.createElement("div");
   heading.className = "selection-heading";
   const title = document.createElement("div");
-  addText(title, "p", "MAKE YOUR PICK", "label");
+  addText(title, "p", selection.pick ? "YOUR LOCKED PICK" : "MAKE YOUR PICK", "label");
   addText(
     title,
     "h3",
@@ -92,7 +100,7 @@ function renderSelection(pot, selection, panel) {
   addText(
     heading,
     "span",
-    `${selection.remaining_teams?.length || 0} teams remaining`,
+    `${selection.remaining_teams?.length || 0} team${selection.remaining_teams?.length === 1 ? "" : "s"} remaining`,
     "remaining-count",
   );
   heading.prepend(title);
@@ -228,7 +236,7 @@ async function loadPotSelection(pot, panel) {
     addText(
       panel,
       "p",
-      `Team selection isn’t ready: ${firstError.message}. Run 23 — Player team availability list in Supabase.`,
+      "We couldn’t load the available teams. Refresh your dashboard to try again.",
       "selection-note warning",
     );
     return;
@@ -244,7 +252,7 @@ async function loadPotSelection(pot, panel) {
       addText(
         panel,
         "p",
-        `Pick deadline isn’t ready: ${deadline.error.message}. Run 20 — Pick deadlines and random assignment audit in Supabase.`,
+        "We couldn’t verify the pick deadline. Refresh before choosing a team.",
         "selection-note warning",
       );
       return;
@@ -262,11 +270,13 @@ function askToConfirmPick(pot, fixture, team) {
     hour: "2-digit",
     minute: "2-digit",
   });
+  pickEmblem.onerror = () => pickEmblem.removeAttribute("src");
   const safeEmblem = safeImageUrl(team.emblem_url);
   if (safeEmblem) pickEmblem.src = safeEmblem;
   else pickEmblem.removeAttribute("src");
   pickTitle.textContent = team.name;
   pickFixture.textContent = `${pot.name} · ${fixture.home_team.name} v ${fixture.away_team.name} · ${kickoff}`;
+  pickDialog.returnValue = "";
   pickDialog.showModal();
   return new Promise((resolve) =>
     pickDialog.addEventListener(
@@ -277,7 +287,10 @@ function askToConfirmPick(pot, fixture, team) {
   );
 }
 async function confirmPick(pot, fixture, team, button) {
+  const generation = dashboardGeneration;
+  if (pickDialog.open || pot.id !== dashboardPot.value) return;
   if (!(await askToConfirmPick(pot, fixture, team))) return;
+  if (generation !== dashboardGeneration || pot.id !== dashboardPot.value || !button.isConnected) return;
   button.disabled = true;
   message.textContent = `Locking in ${team.name}…`;
   const { error } = await supabase.rpc("confirm_team_pick", {
@@ -293,9 +306,10 @@ async function confirmPick(pot, fixture, team, button) {
   message.textContent = `${team.name} is confirmed and locked.`;
   await loadDashboard();
 }
-function renderPlayerStandings(data, panel) {
+function renderPlayerStandings(data, panel, complete = false) {
   panel.replaceChildren();
-  addText(panel, "h3", "Pot standings");
+  addText(panel, "h3", complete ? "Recorded standings" : "Pot standings");
+  if (complete) addText(panel, "p", "These standings preserve original round outcomes. The current winner decision is shown in the results above.", "standings-player-note");
   addText(
     panel,
     "p",
@@ -310,6 +324,9 @@ function renderPlayerStandings(data, panel) {
   }
   const board = document.createElement("div");
   board.className = "standings-board";
+  board.setAttribute("role", "region");
+  board.setAttribute("aria-label", "Pot standings by gameweek");
+  board.tabIndex = 0;
   const table = document.createElement("table");
   table.className = "standings-table player-standings-table";
   const head = document.createElement("thead"),
@@ -337,6 +354,7 @@ function renderPlayerStandings(data, panel) {
     gameweeks.forEach((gameweek) => {
       const cell = document.createElement("td"),
         pick = picks.get(gameweek);
+      cell.dataset.gameweek = `GW${gameweek}`;
       cell.className = `standings-cell ${pick?.outcome || "empty"}`;
       if (pick) renderStandingPick(cell, pick);
       else cell.textContent = "—";
@@ -358,12 +376,12 @@ async function loadPlayerStandings(pot, panel) {
     addText(
       panel,
       "p",
-      `Standings aren’t ready: ${error.message}. Run 21 — Player-visible standings with pick privacy in Supabase.`,
+      "We couldn’t load the standings. Refresh your dashboard to try again.",
       "selection-note warning",
     );
     return;
   }
-  renderPlayerStandings(data, panel);
+  renderPlayerStandings(data, panel, pot.status === "complete");
 }
 function renderPot(pot) {
   const card = document.createElement("article");
@@ -381,7 +399,7 @@ function renderPot(pot) {
   addText(
     header,
     "span",
-    titleCase(pot.player_status),
+    pot.status === "complete" ? `Original result: ${titleCase(pot.player_status)}` : pot.player_status === "active" && ["requested", "confirmed"].includes(pot.buy_back_status) ? "Re-entered" : titleCase(pot.player_status),
     `pot-player-status ${pot.player_status}`,
   );
   header.prepend(title);
@@ -391,7 +409,7 @@ function renderPot(pot) {
   completion.className = "completion-summary";
   const review = document.createElement("section"); review.className="review-banner";
   [
-    ["Player status", titleCase(pot.player_status)],
+    [pot.status === "complete" ? "Original player status" : "Player status", titleCase(pot.player_status)],
     ["Buy-back", titleCase(pot.buy_back_status)],
   ].forEach(([label, value]) => {
     const item = document.createElement("div");
@@ -511,7 +529,7 @@ function renderPot(pot) {
   const quickNav = document.createElement("nav");
   quickNav.className = "pot-quick-nav";
   [
-    ["Pick a team", selection.id],
+    [pot.status === "complete" ? "Final results" : "Your pick", selection.id],
     ["My history", history.id],
     ["Standings", standings.id],
   ].forEach(([label, id]) => {
@@ -520,9 +538,20 @@ function renderPot(pot) {
     link.textContent = label;
     quickNav.append(link);
   });
-  card.append(header, quickNav, summary, review, completion, payment);
-  if (buyBack.childElementCount) card.append(buyBack);
-  card.append(gameweeks, selection, history, standings);
+  const body = document.createElement("div"); body.className = "pot-body";
+  const main = document.createElement("div"); main.className = "pot-main";
+  const aside = document.createElement("aside"); aside.className = "pot-aside";
+  aside.setAttribute("aria-label", "Entry and re-entry details");
+  main.append(selection, standings, history);
+  aside.append(summary, payment);
+  if (buyBack.childElementCount) aside.append(buyBack);
+  aside.append(gameweeks);
+  body.append(main, aside);
+  quickNav.setAttribute("aria-label", "This competition");
+  card.append(header, review, completion);
+  if (buyBack.childElementCount && (pot.player_status === "eliminated" || pot.buy_back_status === "requested")) card.append(buyBack);
+  card.append(quickNav, body);
+  card.dataset.potId=pot.id;
   potsContainer.append(card);
   loadPotSelection(pot, selection);
   loadPickHistory(pot, history);
@@ -537,14 +566,51 @@ async function loadPlayerReviewState(pot,panel){
   addText(panel,"p","This pot is under review because a match result or competition decision changed. Picks and history remain safe while the organiser resolves it.");
 }
 async function loadPotCompletion(pot, panel) {
-  const { data, error } = await supabase.rpc("get_pot_completion", { selected_pot_id: pot.id });
-  if (error || !data) { panel.remove(); return; }
-  const names=(data.winners||[]).map(winner=>winner.name);
+  const generation = dashboardGeneration;
+  const accountId = dashboardAccountId;
+  panel.replaceChildren();
+  addText(panel, 'p', 'Checking the current result…', 'selection-note');
+  // Original completion is immutable history. Only the member-safe projection
+  // may supply a revised decision; never fetch private review ledger rows.
+  const replies = await Promise.allSettled([
+    supabase.rpc('get_pot_completion', { selected_pot_id: pot.id }),
+    supabase.rpc('get_my_pot_review_outcome', { selected_pot_id: pot.id }),
+  ]);
+  if (generation !== dashboardGeneration || !panel.isConnected || !accountContext.isCurrent(accountId)) return;
+  if (await accountContext.currentAccount() !== accountId) return;
+  if (generation !== dashboardGeneration || !panel.isConnected || !accountContext.isCurrent(accountId)) return;
+  panel.replaceChildren();
+  if (replies.some(reply => reply.status === 'rejected' || reply.value?.error
+    || !reply.value || !Object.hasOwn(reply.value, 'data') || reply.value.data === undefined)) {
+    addText(panel, 'p', 'Couldn’t verify the current result. Refresh your dashboard to try again.', 'selection-note warning');
+    return;
+  }
+  const original = replies[0].value?.data;
+  const revised = replies[1].value?.data;
+  if (original === null && revised === null) { panel.remove(); return; }
+  const data = revised ?? original;
+  const validWinners = Array.isArray(data?.winners) && data.winners.length > 0
+    && data.winners.every(winner => winner !== null && typeof winner === 'object' && !Array.isArray(winner)
+      && typeof winner.name === 'string' && winner.name.trim()
+      && Number.isInteger(winner.prize_share_pence) && winner.prize_share_pence >= 0);
+  if (!validWinners || !Number.isInteger(data.total_prize_pence) || data.total_prize_pence < 0
+    || (revised && (!Number.isInteger(revised.revision) || revised.revision < 1))) {
+    addText(panel, 'p', 'Couldn’t verify the current result. Refresh your dashboard to try again.', 'selection-note warning');
+    return;
+  }
+  const names=data.winners.map(winner=>winner.name);
   addText(panel,"h3",`${names.length===1?"Winner":"Winners"}: ${names.join(", ")}`);
   addText(panel,"strong",`Prize pot: ${money(data.total_prize_pence)}`);
-  addText(panel,"p",`${data.winner_count} winner${data.winner_count===1?"":"s"}`);
-  const mine=(data.winners||[]).find(winner=>winner.is_me);
+  addText(panel,"p",`${names.length} winner${names.length===1?"":"s"}`);
+  const mine=data.winners.find(winner=>winner.is_me === true);
   if(mine) addText(panel,"p",`Your share: ${money(mine.prize_share_pence)}`);
+  if (revised) {
+    addText(panel, 'strong', `Revised result · Revision ${revised.revision}`);
+    const decided = new Date(revised.decided_at);
+    if (Number.isFinite(decided.getTime())) addText(panel, 'p', `Decided ${decided.toLocaleString('en-GB', { timeZone: 'Europe/London' })}.`);
+    addText(panel, 'p', 'The organiser revised the winner decision. Original results remain recorded.');
+    return;
+  }
   const explanation=data.resolution_rule==="gw38_buyback_eligible_split"
     ? "GW38 finished with no surviving picks. Players with an unused buy-back shared the pot."
     : data.resolution_rule==="gw38_all_lost_split" ? "GW38 finished with no surviving picks, so the final cohort shared the pot." : "The GW38 surviving pick or picks won the pot.";
@@ -560,7 +626,7 @@ async function loadPickHistory(pot, panel) {
     addText(
       panel,
       "p",
-      `Pick history isn’t ready: ${error.message}. Run 18 — Tournament lifecycle, history and test reset in Supabase.`,
+      "We couldn’t load your previous picks. Refresh your dashboard to try again.",
       "selection-note warning",
     );
     return;
@@ -592,33 +658,63 @@ async function loadPickHistory(pot, panel) {
   });
   panel.append(list);
 }
-async function loadDashboard() {
-  const { data, error } = await supabase.rpc("get_my_dashboard");
-  if (error) {
-    loading.querySelector("h1").textContent = "Couldn’t load your dashboard.";
-    const detail = addText(loading, "p", error.message, "intro");
-    detail.style.fontSize = ".9rem";
-    return;
-  }
-  if (data?.email) {
-    accountName.textContent = data.first_name || "Player";
-    accountEmail.textContent = data.email;
-    accountIdentity.hidden = false;
-  }
-  if (!data?.pots?.length) {
-    loading.hidden = true;
-    empty.hidden = false;
-    return;
-  }
-  loading.hidden = true;
-  content.hidden = false;
-  const { data: providerNotice } = await supabase.rpc("get_player_provider_notice");
-  if (providerNotice) message.textContent = providerNotice;
-  greeting.textContent = "Last Man Standing 26/27 Pots";
-  potCount.textContent = `${data.pots.length} pot${data.pots.length === 1 ? "" : "s"}`;
+const dashboardPot=document.querySelector('#dashboard-pot');
+let dashboardGeneration=0;
+let dashboardAccountId=null;
+let selectionGeneration=0;
+accountContext.onInvalidate(() => {
+  dashboardAccountId=null;
+  dashboardGeneration++;
+  selectionGeneration++;
+  dashboardPot.replaceChildren();
   potsContainer.replaceChildren();
-  data.pots.forEach(renderPot);
+  document.querySelector('#available-pots').replaceChildren();
+  accountIdentity.hidden=true;
+  content.hidden=true;
+});
+async function selectDashboardPot() {
+  const selection=++selectionGeneration;
+  const potId=dashboardPot.value;
+  if (pickDialog.open) pickDialog.close("cancel");
+  for(const card of potsContainer.children)card.hidden=card.dataset.potId!==dashboardPot.value;
+  const accountId=await accountContext.currentAccount();
+  if (!accountId || accountId!==dashboardAccountId || selection!==selectionGeneration) return;
+  savePotPreference(accountId, potId);
 }
+dashboardPot.addEventListener('change',()=>{ message.textContent=''; selectDashboardPot(); });
+async function loadDashboard() {
+  const generation=++dashboardGeneration;
+  if (pickDialog.open) pickDialog.close("cancel");
+  const accountId=await accountContext.currentAccount();
+  if (!accountId || accountId!==dashboardAccountId || generation!==dashboardGeneration) return;
+  const [{data,error},available]=await Promise.all([supabase.rpc('get_my_dashboard'),supabase.rpc('get_available_pots')]);
+  if(generation!==dashboardGeneration || await accountContext.currentAccount()!==accountId)return;
+  if(generation!==dashboardGeneration || !accountContext.isCurrent(accountId))return;
+  if(error){ message.textContent=`Couldn’t load your dashboard: ${error.message}`; content.hidden=false;loading.hidden=true;return; }
+  if(data?.email){accountName.textContent=data.first_name||'Player';accountEmail.textContent=data.email;accountIdentity.hidden=false;}
+  const pots=data?.pots||[];
+  loading.hidden=true;empty.hidden=pots.length>0;content.hidden=false;
+  content.querySelector('.dashboard-heading').hidden=!pots.length;
+  document.querySelector('#dashboard-pot-label').hidden=pots.length<2;
+  const selected=preferredPot(pots, dashboardPot.value, readPotPreference(dashboardAccountId));
+  dashboardPot.replaceChildren();for(const pot of pots)dashboardPot.add(new Option(pot.name,pot.id));
+  if(pots.some(pot=>pot.id===selected))dashboardPot.value=selected;
+  greeting.textContent=data.first_name ? `Matchday, ${data.first_name}.` : 'Your matchday.';
+  potCount.textContent=`${pots.length} pot${pots.length===1?'':'s'}`;
+  potsContainer.replaceChildren();pots.forEach(renderPot);await selectDashboardPot();
+  if(generation!==dashboardGeneration || !accountContext.isCurrent(accountId))return;
+  if(available.error){document.querySelector('#available-pots').textContent=`Couldn’t load available pots: ${available.error.message}`;}
+  else renderAvailablePots(document.querySelector('#available-pots'),available.data||[],supabase,loadDashboard);
+  const {data:notice}=await supabase.rpc('get_player_provider_notice');
+  if(generation===dashboardGeneration && notice)message.textContent=notice;
+}
+document.querySelector('#refresh-dashboard').addEventListener('click',async event=>{
+  const button=event.currentTarget;
+  button.disabled=true; button.textContent='Refreshing…'; message.textContent='';
+  try { await loadDashboard(); }
+  finally { button.disabled=false; button.textContent='Refresh dashboard'; }
+});
+window.addEventListener('focus',()=>{if(!pickDialog.open)loadDashboard();});
 async function claimPayment(potId, button) {
   button.disabled = true;
   message.textContent = "Saving your payment claim…";
@@ -641,7 +737,7 @@ async function claimBuyBack(potId, button) {
   });
   if (error) {
     button.disabled = false;
-    message.textContent = `${error.message}. Run 14 — One-time buy-back workflow in Supabase.`;
+    message.textContent = error.message;
     return;
   }
   message.textContent =
@@ -649,20 +745,16 @@ async function claimBuyBack(potId, button) {
   await loadDashboard();
 }
 async function initialise() {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) {
-    window.location.replace("/");
-    return;
-  }
+  dashboardAccountId=await accountContext.start();
+  if (!dashboardAccountId) return;
   const { data: isAdmin } = await supabase.rpc("is_current_user_admin");
   adminLink.hidden = !isAdmin;
   await loadDashboard();
 }
 signOutButton.addEventListener("click", async () => {
   signOutButton.disabled = true;
-  await supabase.auth.signOut();
-  window.location.replace("/");
+  await accountContext.signOut();
 });
-initialise();
+maintenance.ready.then(initialise);
+
+export { loadDashboard, selectDashboardPot };

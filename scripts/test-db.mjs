@@ -1,5 +1,11 @@
+import { verifyMaintenance } from './verify-maintenance.mjs';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { verifyReviewFreshness } from './verify-review-freshness.mjs';
+import { verifyMembershipRaces } from './verify-membership.mjs';
+import { verifyDraftDeletionRaces } from './verify-draft-deletion.mjs';
+import { verifyProviderFinality } from './verify-provider-finality.mjs';
+import { verifyWave1 } from './verify-wave1.mjs';
 import { DisposableDatabase } from './lib/disposable-db.mjs';
 import { verifyCriticalFindings, seedHistoricalData, verifyHistoricalData } from './verify-critical-db.mjs';
 
@@ -32,6 +38,18 @@ try {
     console.log(`APPLIED corrective ${name}`);
   }
   verifyHistoricalData(db);
+  // Exercise readiness through the public entry points after the complete migration chain.
+  db.sql(read('supabase/verification/lms_nullable_finality_verification.sql'));
+  console.log('PASS nullable finality: 18 final-schema scenarios, including retries and GW38.');
+  db.sql(read('supabase/verification/lms_open_registration_verification.sql'));
+  console.log('PASS open registration: 11 profile, access and authorisation assertions.');
+  console.log(db.sql(read('supabase/verification/lms_rpc_authorisation_verification.sql')).trim().split('\n').find(line => line.startsWith('PASS RPC security:')));
+  console.log(db.sql(read('supabase/verification/lms_draft_deletion_verification.sql')).trim().split('\n').find(line => line.startsWith('PASS draft deletion:')));
+  console.log(db.sql(read('supabase/verification/lms_admin_display_verification.sql')).trim().split('\n').find(line => line.startsWith('PASS admin display:')));
+  console.log(db.sql(read('supabase/verification/lms_membership_verification.sql')).trim().split('\n').find(line => line.startsWith('PASS pot membership:')));
+  await verifyDraftDeletionRaces(db);
+  await verifyMembershipRaces(db);
+  await verifyReviewFreshness(db);
   // Existing rollback-based business-rule suites remain executable on the final schema.
   for (const name of [
     'lms_integrity_phase_1_verification.sql', 'lms_phase_2a_verification.sql',
@@ -58,6 +76,9 @@ try {
   // Close disposable-only race fixtures before exercising the complete pipeline.
   db.sql("update public.lms_provider_runs set status='failed',completed_at=now() where status='running'; update public.pots set status='complete',lifecycle_status='complete' where season='PHASE2I-RACE';");
   await verifyCriticalFindings(db);
+  await verifyProviderFinality(db);
+  verifyWave1(db);
+  await verifyMaintenance(db);
   console.log('PASS isolated database integration verification.');
 } catch (error) {
   console.error(error.stderr?.toString() || error.stack || error);

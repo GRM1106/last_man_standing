@@ -27,6 +27,7 @@ export function addImage(parent, value, className = "") {
   const safeUrl = safeImageUrl(value);
   if (safeUrl) image.src = safeUrl;
   image.alt = "";
+  image.addEventListener("error", () => image.removeAttribute("src"), { once: true });
   parent.append(image);
   return image;
 }

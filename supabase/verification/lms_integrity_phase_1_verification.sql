@@ -26,7 +26,7 @@ insert into public.football_fixtures(
 ) values
   (-31201,-31201,'PHASE1-VERIFY',1,now()+interval '1 day',-31101,-31102,null,null,false,false,false,'scheduled',false,now(),now()),
   (-31202,-31202,'PHASE1-VERIFY',2,now()+interval '8 days',-31103,-31104,null,null,false,false,false,'scheduled',false,now(),now()),
-  (-31203,-31203,'PHASE1-VERIFY',3,now()-interval '1 day',-31101,-31102,2,0,true,true,false,'finished',false,now(),now()),
+  (-31203,-31203,'PHASE1-VERIFY',3,now()-interval '1 day',-31101,-31102,2,0,true,true,false,'finished',true,now(),now()),
   (-31204,-31204,'PHASE1-VERIFY',3,now()+interval '1 day',-31103,-31104,null,null,false,false,false,'scheduled',false,now(),now()),
   (-31205,-31205,'PHASE1-VERIFY',4,now()-interval '1 hour',-31101,-31102,null,null,false,false,false,'scheduled',false,now(),now()),
   (-31206,-31206,'PHASE1-VERIFY',5,now()+interval '2 days',-31101,-31102,null,null,false,false,false,'scheduled',false,now(),now()),

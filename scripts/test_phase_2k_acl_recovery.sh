@@ -13,48 +13,55 @@
 #   KEEP=1 ./scripts/test_phase_2k_acl_recovery.sh     # leave the container up
 #
 # Exits non-zero on the first failed assertion. Touches nothing outside its own
-# uniquely named container/volume and a scratch directory under TMPDIR.
-#
-# It never contacts staging or production and never touches the local Supabase
-# stack: the container name is fixed to `pg17-p2k-selftest`, which no other
-# component uses.
+# UUID-named, ownership-verified container and a scratch directory under TMPDIR.
+# Uses the cached test image, no network/ports/binds, and temporary database storage.
+# KEEP=1 retains a ready container for inspection; interruption always cleans up.
+# SIGKILL/host failure or uncertain ownership can leave an orphan: never sweep by name.
 # ============================================================================
 set -euo pipefail
 
-IMAGE=public.ecr.aws/supabase/postgres:17.6.1.165
-CTR=pg17-p2k-selftest
-VOL=pg17-p2k-selftest-data
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CAPTURE="$REPO/supabase/discovery/phase_2k_acl_capture.sql"
 GEN="$REPO/scripts/generate_phase_2k_acl_recovery.py"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/p2k-selftest.XXXXXX")"
+RESOURCE_STATE="$WORK/container.json"
+RESOURCE_READY=0
+resource() { node "$REPO/scripts/lib/acl-test-container.mjs" "$1" "$RESOURCE_STATE" "${@:2}"; }
 PASS=0; FAIL=0
 
 say()  { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 ok()   { PASS=$((PASS+1)); printf '  PASS  %s\n' "$*"; }
 bad()  { FAIL=$((FAIL+1)); printf '  FAIL  %s\n' "$*"; }
-psqlq(){ docker exec -i "$CTR" psql -q -U supabase_admin -d postgres "$@"; }
-psqlv(){ docker exec -i "$CTR" psql -qtA -U supabase_admin -d postgres -c "$1"; }
-capture() { docker exec -i "$CTR" psql -v ON_ERROR_STOP=1 -q --csv -U supabase_admin \
+psqlq(){ resource exec psql -q -U supabase_admin -d postgres "$@"; }
+psqlv(){ resource exec psql -qtA -U supabase_admin -d postgres -c "$1"; }
+capture() { resource exec psql -v ON_ERROR_STOP=1 -q --csv -U supabase_admin \
               -d postgres < "$CAPTURE" > "$1" 2>"$1.err"; }
 gen() { python3 "$GEN" --source "$1" --source-sha256 "$(shasum -a 256 "$1" | awk '{print $1}')" \
           --out "$2" --manifest "$3" --label "p2k selftest"; }
 assert_eq() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected '$3', got '$2')"; fi; }
 
 cleanup() {
-  if [ "${KEEP:-0}" != "1" ]; then
-    docker rm -f "$CTR" >/dev/null 2>&1 || true
-    docker volume rm "$VOL" >/dev/null 2>&1 || true
+  local result=$?
+  trap - EXIT
+  if [ "${KEEP:-0}" = "1" ] && [ "$RESOURCE_READY" = "1" ]; then
+    if ! resource keep; then
+      printf 'Could not verify retained resource; inspect %s manually.\n' "$RESOURCE_STATE" >&2
+      [ "$result" -ne 0 ] || result=1
+    fi
+  elif ! resource cleanup; then
+    printf 'Cleanup refused or failed; retained ownership record: %s\n' "$RESOURCE_STATE" >&2
+    [ "$result" -ne 0 ] || result=1
   fi
+  exit "$result"
 }
 trap cleanup EXIT
+trap 'KEEP=0; exit 130' INT
+trap 'KEEP=0; exit 143' TERM
 
-say "starting $CTR"
-docker rm -f "$CTR" >/dev/null 2>&1 || true
-docker volume rm "$VOL" >/dev/null 2>&1 || true
-docker run -d --name "$CTR" -v "$VOL":/var/lib/postgresql/data \
-  -e POSTGRES_PASSWORD="$(head -c 24 /dev/urandom | base64 | tr -d '/+=')" "$IMAGE" >/dev/null
-for _ in $(seq 1 90); do docker exec "$CTR" pg_isready -U postgres >/dev/null 2>&1 && break; sleep 1; done
+say "creating an isolated ACL test container"
+resource create
+resource start
+for _ in $(seq 1 90); do resource exec pg_isready -U postgres >/dev/null 2>&1 && break; sleep 1; done
 # pg_isready returns as soon as the postmaster accepts connections, but the
 # Supabase image's entrypoint keeps running SQL after that -- including ALTER
 # ROLE on anon/authenticated/service_role. Capturing during that window records
@@ -62,7 +69,7 @@ for _ in $(seq 1 90); do docker exec "$CTR" pg_isready -U postgres >/dev/null 2>
 # role-graph divergence that never happened. Wait for pg_roles to stop moving.
 ROLESNAP=""; STABLE=0
 for _ in $(seq 1 120); do
-  CUR=$(docker exec "$CTR" psql -qtA -U postgres -d postgres -c \
+  CUR=$(resource exec psql -qtA -U postgres -d postgres -c \
     "select string_agg(rolname||rolsuper::text||rolinherit::text||rolcreaterole::text||rolcreatedb::text||rolcanlogin::text||rolreplication::text||rolbypassrls::text, ',' order by rolname) from pg_roles" 2>/dev/null || true)
   if [ -n "$CUR" ] && [ "$CUR" = "$ROLESNAP" ]; then STABLE=$((STABLE+1)); else STABLE=0; fi
   ROLESNAP="$CUR"
@@ -71,6 +78,9 @@ for _ in $(seq 1 120); do
 done
 if [ "$STABLE" -ge 3 ]; then ok "role catalogue settled after initialisation"; else bad "role catalogue never settled"; fi
 assert_eq "PostgreSQL is 17.x" "$(psqlv "select substring(current_setting('server_version') from '^17')")" "17"
+# KEEP only applies after startup checks pass; partial setup always cleans up.
+[ "$FAIL" -eq 0 ] || exit 1
+RESOURCE_READY=1
 
 # --------------------------------------------------------------------------
 say "building the fixture: every supported class and ACL state"
